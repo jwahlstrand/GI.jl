@@ -1,7 +1,7 @@
 const _gi_modules = Dict{Symbol,Module}()
 
 #we will get rid of this one:
-const _gi_modsyms = Dict{(Symbol,Symbol),Any}()
+const _gi_modsyms = Dict{Tuple{Symbol,Symbol},Any}()
 
 peval(ex) = (print(ex); eval(ex))
 function create_module(modname,decs)
@@ -183,7 +183,7 @@ end
 peval(mod, expr) = (print(expr,'\n'); eval(mod,expr))
 
 
-const _gi_methods = Dict{(Symbol,Symbol,Symbol),Any}()
+const _gi_methods = Dict{Tuple{Symbol,Symbol,Symbol},Any}()
 ensure_method(mod::Module, rtype, method) = ensure_method(mod.__ns,rtype,method)
 ensure_method(name::Symbol, rtype, method) = ensure_method(_ns(name),rtype,method)
 
@@ -203,7 +203,7 @@ end
 
 abstract InstanceType
 is_pointer(::Type{InstanceType}) = true
-typealias TypeInfo Union(GITypeInfo,Type{InstanceType})
+typealias TypeInfo Union{GITypeInfo,Type{InstanceType}}
     
 immutable TypeDesc{T}
     gitype::T
@@ -226,13 +226,13 @@ function extract_type(info::GITypeInfo, basetype::Type)
 end
 
 #  T<:SomeType likes to steal this:
-extract_type(info::GITypeInfo, basetype::Type{None}) = TypeDesc(None, :Any, :None)
+extract_type(info::GITypeInfo, basetype::Type{Union{}}) = TypeDesc(Union{}, :Any, :None)
 
-function extract_type(info::GITypeInfo, basetype::Type{ByteString})
+function extract_type(info::GITypeInfo, basetype::Type{String})
     @assert is_pointer(info)
-    TypeDesc{Type{ByteString}}(ByteString,:Any,:(Ptr{Uint8}))
+    TypeDesc{Type{String}}(String,:Any,:(Ptr{Uint8}))
 end
-function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{ByteString}}) 
+function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}}) 
     owns = get_ownership_transfer(arginfo) != TRANSFER_NOTHING
     expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name, $owns))
 end
@@ -279,7 +279,7 @@ function extract_type(typeinfo::GITypeInfo,info::GICallbackInfo)
     TypeDesc(info,:Any, :(Ptr{Void}))
 end
 
-typealias ObjectLike Union(GIObjectInfo, GIInterfaceInfo)
+typealias ObjectLike Union{GIObjectInfo, GIInterfaceInfo}
 
 function typename(info::GIObjectInfo) 
     g_type = GI.get_g_type(info)

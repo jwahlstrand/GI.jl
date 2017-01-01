@@ -30,20 +30,20 @@ end
 convert(::Type{Ptr{GIBaseInfo}},w::GIInfo) = w.handle
 
 const GIInfoTypesShortNames = (:Invalid, :Function, :Callback, :Struct, :Boxed, :Enum, :Flags, :Object, :Interface, :Constant, :Unknown, :Union, :Value, :Signal, :VFunc, :Property, :Field, :Arg, :Type, :Unresolved)
-const GIInfoTypeNames = [ Base.symbol("GI$(name)Info") for name in GIInfoTypesShortNames]
+const GIInfoTypeNames = [ Base.Symbol("GI$(name)Info") for name in GIInfoTypesShortNames]
 
 const GIInfoTypes = Dict{Symbol, Type}()
 
 for (i,itype) in enumerate(GIInfoTypesShortNames)
-    let lowername = symbol(lowercase(string(itype)))
+    let lowername = Symbol(lowercase(string(itype)))
         @eval typealias $(GIInfoTypeNames[i]) GIInfo{$(i-1)}
         GIInfoTypes[lowername] = GIInfo{i-1}
     end
 end
 
-typealias GICallableInfo Union(GIFunctionInfo,GIVFuncInfo, GICallbackInfo, GISignalInfo)
-typealias GIEnumOrFlags Union(GIEnumInfo,GIFlagsInfo)
-typealias GIRegisteredTypeInfo Union(GIEnumOrFlags,GIInterfaceInfo, GIObjectInfo, GIStructInfo, GIUnionInfo)
+typealias GICallableInfo Union{GIFunctionInfo,GIVFuncInfo, GICallbackInfo, GISignalInfo}
+typealias GIEnumOrFlags Union{GIEnumInfo,GIFlagsInfo}
+typealias GIRegisteredTypeInfo Union{GIEnumOrFlags,GIInterfaceInfo, GIObjectInfo, GIStructInfo, GIUnionInfo}
 
 show{Typeid}(io::IO, ::Type{GIInfo{Typeid}}) = print(io, GIInfoTypeNames[Typeid+1])
 
@@ -94,7 +94,7 @@ immutable GINamespace
     end
 end 
 convert(::Type{Symbol}, ns::GINamespace) = ns.name
-convert(::Type{Ptr{Uint8}}, ns::GINamespace) = convert(Ptr{Uint8}, ns.name)
+convert(::Type{Ptr{UInt8}}, ns::GINamespace) = convert(Ptr{UInt8}, ns.name)
 
 function gi_require(namespace, version=nothing)
     if version==nothing
@@ -102,7 +102,7 @@ function gi_require(namespace, version=nothing)
     end
     GError() do error_check
         typelib = ccall((:g_irepository_require, libgi), Ptr{GITypelib}, 
-            (Ptr{GIRepository}, Ptr{Uint8}, Ptr{Uint8}, Cint, Ptr{Ptr{GError}}), 
+            (Ptr{GIRepository}, Ptr{UInt8}, Ptr{UInt8}, Cint, Ptr{Ptr{GError}}), 
             girepo, namespace, version, 0, error_check)
         return  typelib !== C_NULL
     end
@@ -110,7 +110,7 @@ end
 
 function gi_find_by_name(namespace, name)
     info = ccall((:g_irepository_find_by_name, libgi), Ptr{GIBaseInfo}, 
-           (Ptr{GIRepository}, Ptr{Uint8}, Ptr{Uint8}), girepo, namespace, name)
+           (Ptr{GIRepository}, Ptr{UInt8}, Ptr{UInt8}), girepo, namespace, name)
     if info == C_NULL
         error("Name $name not found in $namespace")
     end
@@ -120,9 +120,9 @@ end
 #GIInfo(namespace, name::Symbol) = gi_find_by_name(namespace, name)
 
 #TODO: make ns behave more like Array and/or Dict{Symbol,GIInfo}?
-length(ns::GINamespace) = int(ccall((:g_irepository_get_n_infos, libgi), Cint, (Ptr{GIRepository}, Ptr{Uint8}), girepo, ns))
+length(ns::GINamespace) = Int(ccall((:g_irepository_get_n_infos, libgi), Cint, (Ptr{GIRepository}, Ptr{UInt8}), girepo, ns))
 function getindex(ns::GINamespace, i::Integer) 
-    GIInfo(ccall((:g_irepository_get_info, libgi), Ptr{GIBaseInfo}, (Ptr{GIRepository}, Ptr{Uint8}, Cint), girepo, ns, i-1 ))
+    GIInfo(ccall((:g_irepository_get_info, libgi), Ptr{GIBaseInfo}, (Ptr{GIRepository}, Ptr{UInt8}, Cint), girepo, ns, i-1 ))
 end
 getindex(ns::GINamespace, name::Symbol) = gi_find_by_name(ns, name)
 
@@ -139,7 +139,7 @@ end
 
 
 function get_shlibs(ns)
-    names = ccall((:g_irepository_get_shared_library, libgi), Ptr{Uint8}, (Ptr{GIRepository}, Ptr{Uint8}), girepo, ns)
+    names = ccall((:g_irepository_get_shared_library, libgi), Ptr{UInt8}, (Ptr{GIRepository}, Ptr{Uint8}), girepo, ns)
     if names != C_NULL
         [bytestring(s) for s in split(bytestring(names),",")]
     else
@@ -158,17 +158,17 @@ GIInfoTypes[:registered_type] = GIRegisteredTypeInfo
 GIInfoTypes[:base] = GIInfo
 GIInfoTypes[:enum] = GIEnumOrFlags
 
-Maybe(T) = Union(T,Nothing)
+Maybe(T) = Union{T,Void}
 
 rconvert(t,v) = rconvert(t,v,false)
 rconvert(t::Type,val,owns) = convert(t,val)
-rconvert(::Type{ByteString}, val,owns) = bytestring(val,owns) 
-rconvert(::Type{Symbol}, val,owns) = symbol(bytestring(val,owns) )
+rconvert(::Type{String}, val,owns) = bytestring(val,owns) 
+rconvert(::Type{Symbol}, val,owns) = Symbol(bytestring(val,owns) )
 rconvert(::Type{GIInfo}, val::Ptr{GIBaseInfo},owns) = GIInfo(val,owns) 
-#rconvert{T}(::Type{Union(T,Nothing)}, val,owns) = (val == C_NULL) ? nothing : rconvert(T,val,owns)
+#rconvert{T}(::Type{Union(T,Void)}, val,owns) = (val == C_NULL) ? nothing : rconvert(T,val,owns)
 # :(
-for typ in [GIInfo, ByteString, GObject]
-    @eval rconvert(::Type{Union($typ,Nothing)}, val,owns) = (val == C_NULL) ? nothing : rconvert($typ,val,owns)
+for typ in [GIInfo, String, GObject]
+    @eval rconvert(::Type{Union{$typ,Void}}, val,owns) = (val == C_NULL) ? nothing : rconvert($typ,val,owns)
 end
 rconvert(::Type{Void}, val) = error("something went wrong")
 
@@ -178,48 +178,48 @@ for (owner, property) in [
     (:object, :property), (:object, :constant), (:object, :field),
     (:interface, :method), (:interface, :signal), (:callable, :arg),
     (:enum, :value)]
-    @eval function $(symbol("get_$(property)s"))(info::$(GIInfoTypes[owner]))
+    @eval function $(Symbol("get_$(property)s"))(info::$(GIInfoTypes[owner]))
         n = int(ccall(($("g_$(owner)_info_get_n_$(property)s"), libgi), Cint, (Ptr{GIBaseInfo},), info))
         GIInfo[ GIInfo( ccall(($("g_$(owner)_info_get_$property"), libgi), Ptr{GIBaseInfo}, (Ptr{GIBaseInfo}, Cint), info, i)) for i=0:n-1]
     end
     if property == :method
-        @eval function $(symbol("find_$(property)"))(info::$(GIInfoTypes[owner]), name)
-            ptr = ccall(($("g_$(owner)_info_find_$(property)"), libgi), Ptr{GIBaseInfo}, (Ptr{GIBaseInfo},Ptr{Uint8}), info, name)
+        @eval function $(Symbol("find_$(property)"))(info::$(GIInfoTypes[owner]), name)
+            ptr = ccall(($("g_$(owner)_info_find_$(property)"), libgi), Ptr{GIBaseInfo}, (Ptr{GIBaseInfo},Ptr{UInt8}), info, name)
             rconvert(Maybe(GIInfo), ptr, true)
         end
     end
 end
 getindex(info::GIRegisteredTypeInfo, name::Symbol) = find_method(info, name)
 
-typealias MaybeGIInfo Union(GIInfo,Nothing)
+typealias MaybeGIInfo Union{GIInfo,Void}
 # one->one
 # FIXME: memory management of GIInfo:s
-ctypes = [GIInfo=>Ptr{GIBaseInfo},
+ctypes = Dict(GIInfo=>Ptr{GIBaseInfo},
          MaybeGIInfo=>Ptr{GIBaseInfo},
-          Symbol=>Ptr{Uint8}]
+          Symbol=>Ptr{UInt8})
 for (owner,property,typ) in [
     (:base, :name, Symbol), (:base, :namespace, Symbol),
     (:base, :container, MaybeGIInfo), (:registered_type, :g_type, GType), (:object, :parent, MaybeGIInfo),
     (:callable, :return_type, GIInfo), (:callable, :caller_owns, Enum),
-    (:function, :flags, Enum), (:function, :symbol, Symbol),
+    (:function, :flags, Enum), (:function, :Symbol, Symbol),
     (:arg, :type, GIInfo), (:arg, :direction, Enum), (:arg, :ownership_transfer, Enum),
     (:type, :tag, Enum), (:type, :interface, GIInfo), (:type, :array_type, Enum), 
     (:type, :array_length, Cint), (:type, :array_fixed_size, Cint), (:constant, :type, GIInfo), 
     (:value, :value, Int64) ]
 
     ctype = get(ctypes, typ, typ)
-    @eval function $(symbol("get_$(property)"))(info::$(GIInfoTypes[owner]))
+    @eval function $(Symbol("get_$(property)"))(info::$(GIInfoTypes[owner]))
         rconvert($typ,ccall(($("g_$(owner)_info_get_$(property)"), libgi), $ctype, (Ptr{GIBaseInfo},), info))
     end
 end
 
-get_name(info::GITypeInfo) = symbol("<gtype>")
-get_name(info::GIInvalidInfo) = symbol("<INVALID>")
+get_name(info::GITypeInfo) = Symbol("<gtype>")
+get_name(info::GIInvalidInfo) = Symbol("<INVALID>")
 
 get_param_type(info::GITypeInfo,n) = rconvert(MaybeGIInfo, ccall(("g_type_info_get_param_type", libgi), Ptr{GIBaseInfo}, (Ptr{GIBaseInfo}, Cint), info, n))
 
 #pretend that CallableInfo is a ArgInfo describing the return value
-typealias ArgInfo Union(GIArgInfo,GICallableInfo)
+typealias ArgInfo Union{GIArgInfo,GICallableInfo}
 get_ownership_transfer(ai::GICallableInfo) = get_caller_owns(ai)
 may_be_null(ai::GICallableInfo) = may_return_null(ai)
 get_type(ai::GICallableInfo) = get_return_type(ai)
@@ -233,7 +233,7 @@ for (owner,flag) in [ (:type, :is_pointer), (:callable, :may_return_null), (:arg
     end
 end
 
-is_gobject(::Nothing) = false
+is_gobject(::Void) = false
 function is_gobject(info::GIObjectInfo)
     if GLib.g_type_name(get_g_type(info)) == :GObject
         true
@@ -244,11 +244,11 @@ end
 
 
 const typetag_primitive = [
-    Void,Bool,Int8,Uint8,
-    Int16,Uint16,Int32,Uint32,
-    Int64,Uint64,Cfloat,Cdouble,
+    Void,Bool,Int8,UInt8,
+    Int16,UInt16,Int32,UInt32,
+    Int64,UInt64,Cfloat,Cdouble,
     GType, 
-    ByteString
+    String
     ]
 const TAG_BASIC_MAX = 13
 const TAG_FILENAME = 14
@@ -280,10 +280,10 @@ function get_base_type(info::GITypeInfo)
     elseif tag == TAG_GSLIST
         GLib._GList
     elseif tag == TAG_FILENAME
-        ByteString #FIXME: on funky platforms this may not be utf8/ascii
+        String #FIXME: on funky platforms this may not be utf8/ascii
     else
         print(tag)
-        return Nothing
+        return Void
     end
 end
 
@@ -331,8 +331,8 @@ function get_value(info::GIConstantInfo)
     size = ccall((:g_constant_info_get_value,libgi),Cint,(Ptr{GIBaseInfo}, Ptr{Void}), info, x) 
     if typ <: Number
         unsafe_load(cconvert(Ptr{typ}, x))
-    elseif typ == ByteString
-        strptr = unsafe_load(convert(Ptr{Ptr{Uint8}},x))
+    elseif typ == String
+        strptr = unsafe_load(convert(Ptr{Ptr{UInt8}},x))
         val = bytestring(strptr)
         ccall((:g_constant_info_free_value,libgi), Void, (Ptr{GIBaseInfo}, Ptr{Void}), info, x)
         val
@@ -342,11 +342,11 @@ function get_value(info::GIConstantInfo)
 end
 
 function get_consts(gns)
-    consts = (Symbol,Any)[]
+    consts = Tuple{Symbol,Any}[]
     for c in get_all(gns,GIConstantInfo)
         name = get_name(c)
         if !ismatch(r"^[a-zA-Z_]",string(name))
-            name = symbol("_$name") #FIXME: might collide
+            name = Symbol("_$name") #FIXME: might collide
         end
         val = get_value(c)
         if val != nothing
