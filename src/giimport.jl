@@ -7,27 +7,28 @@ peval(ex) = (print(ex); eval(ex))
 function create_module(modname,decs)
     mod =  :(module ($modname); end)
     append!(mod.args[3].args,decs)
-    eval(Expr(:toplevel, mod, modname))
+    peval(Expr(:toplevel, mod, modname))
 end
 
 function get_ns(name::Symbol)
     #modname = name == :Gtk ? :_Gtk : name
-    modname = symbol(string(:_,name))
+    modname = Symbol(string(:_,name))
     if haskey(_gi_modules,name)
         return _gi_modules[name]
     end
     gns = GINamespace(name)
-    for path=get_shlibs(gns) 
-        dlopen(path,RTLD_GLOBAL) 
+    for path=get_shlibs(gns)
+        dlopen(path,RTLD_GLOBAL)
     end
-    decs = Expr[ Expr(:using, :., :., :GI, :_AllTypes), Expr(:using, :Gtk, :GLib) ]
+    #decs = Expr[ Expr(:using, :., :., :GI, :_AllTypes), Expr(:using, :Gtk, :(Gtk.GLib)) ]
+    decs = Expr[ Expr(:using, :GI, :_AllTypes), Expr(:using, :Gtk), Expr(:using, Symbol("Gtk.GLib")) ]
     alldecs = Expr(:block)
     push!(alldecs.args, Expr(:import, :GI, modname))
     exports = Expr(:export)
     push!(decs, exports)
     append!(decs, const_decls(gns))
-    enums = get_all(gns, GIEnumOrFlags)
-    for enum in enums 
+    enums = get_all(gns, GIEnumGIOrFlags)
+    for enum in enums
         shortname = get_name(enum)
         longname = enum_name(enum)
         push!(decs,enum_decl(enum,shortname))
@@ -44,7 +45,7 @@ function get_ns(name::Symbol)
     for obj in objs
         if is_gobject(obj)
             g_type = GI.get_g_type(obj)
-            oname = symbol(GLib.g_type_name(g_type))
+            oname = Symbol(GLib.g_type_name(g_type))
             #if name == :GObject
             #    return name
             #end
@@ -74,11 +75,11 @@ function enum_decl(enum,enumname)
     body = Expr(:block)
     for (name,val) in vals
         if match(r"^[a-zA-Z_]",string(name)) === nothing
-            name = symbol("_$name")
+            name = Symbol("_$name")
         end
         push!(body.args, :(const $(uppercase(name)) = $val) )
     end
-    Expr(:toplevel,Expr(:module, false, symbol(enumname), body))
+    Expr(:toplevel,Expr(:module, false, Symbol(enumname), body))
 end
 
 const_decls(ns) = const_decls(ns,x->x)
@@ -88,17 +89,17 @@ function const_decls(ns,fmt)
     for (name,val) in consts
         name = fmt(name)
         if name !== nothing
-            push!(decs, :(const $(symbol(name)) = $(val)) )
+            push!(decs, :(const $(Symbol(name)) = $(val)) )
         end
     end
     decs
 end
 
 function enum_decls(ns)
-    enums = get_all(ns, GIEnumOrFlags)
+    enums = get_all(ns, GIEnumGIOrFlags)
     typedefs = Expr[]
     aliases = Expr[]
-    for enum in enums 
+    for enum in enums
         name = get_name(enum)
         longname = enum_name(enum)
         push!(typedefs,enum_decl(enum,name))
@@ -106,7 +107,7 @@ function enum_decls(ns)
     end
     (typedefs,aliases)
 end
-enum_name(enum) = symbol(string(get_namespace(enum),get_name(enum)))
+enum_name(enum) = Symbol(string(get_namespace(enum),get_name(enum)))
 
 
 ensure_name(ns::GINamespace, name) = ensure_name(get_ns(ns.name), name)
@@ -127,24 +128,24 @@ module _AllTypes
     import Gtk
     using Gtk.GLib
 
-    function enum_get(enum, sym::Symbol) 
+    function enum_get(enum, sym::Symbol)
         enum.(sym)
     end
     enum_get(enum, int::Integer) = int
     export enum_get
 end
 # we may use `using Alltypes` to mean "import all gtypenames"
-#const ensure_type = _AllTypes.ensure_type 
+#const ensure_type = _AllTypes.ensure_type
 
 
-type UnsupportedType <: Exception
+mutable struct UnsupportedType <: Exception
     typ
 end
 
-abstract GenContext
-type DynamicContext <: GenContext
+abstract type GenContext end
+mutable struct DynamicContext <: GenContext
 end
-type StaticContext <: GenContext
+mutable struct StaticContext <: GenContext
     lookupModule
     typeset::Set
 end
@@ -154,7 +155,7 @@ ensure_type(::DynamicContext, typ) = nothing
 
 function ensure_type(::StaticContext, typ)
     if isdefined(lookupModule,typ) || haskey(typeset,typ)
-       return nothing 
+       return nothing
    else
        throw(UnsupportedType(typ.gitype))
    end
@@ -166,7 +167,7 @@ dynctx = DynamicContext()
 # type already created, but not constructor:
 function load_name(mod,ns,name::Symbol,info::GIObjectInfo)
     if find_method(ns[name], :new) != nothing
-        ensure_method(ns,name,:new) 
+        ensure_method(ns,name,:new)
     end
     mod.(name)
 end
@@ -201,24 +202,24 @@ function ensure_method(ns::GINamespace, rtype::Symbol, method::Symbol)
     return meth
 end
 
-abstract InstanceType
+abstract type InstanceType end
 is_pointer(::Type{InstanceType}) = true
-typealias TypeInfo Union{GITypeInfo,Type{InstanceType}}
-    
-immutable TypeDesc{T}
+const TypeInfo = Union{GITypeInfo,Type{InstanceType}}
+
+struct TypeDesc{T}
     gitype::T
     jtype
     ctype
 end
 
 extract_type(info::GIArgInfo) = extract_type(get_type(info))
-function extract_type(info::GITypeInfo) 
+function extract_type(info::GITypeInfo)
     base_type = get_base_type(info)
     extract_type(info,base_type)
 end
 
-function extract_type(info::GITypeInfo, basetype::Type) 
-    typ = symbol(string(basetype))
+function extract_type(info::GITypeInfo, basetype::Type)
+    typ = Symbol(string(basetype))
     if is_pointer(info)
         typ = :(Ptr{$typ})
     end
@@ -232,58 +233,58 @@ function extract_type(info::GITypeInfo, basetype::Type{String})
     @assert is_pointer(info)
     TypeDesc{Type{String}}(String,:Any,:(Ptr{Uint8}))
 end
-function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}}) 
+function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}})
     owns = get_ownership_transfer(arginfo) != TRANSFER_NOTHING
     expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name, $owns))
 end
-        
-function typename(info::GIStructInfo) 
+
+function typename(info::GIStructInfo)
     g_type = GI.get_g_type(info)
-    symbol(GLib.g_type_name(g_type))
+    Symbol(GLib.g_type_name(g_type))
 end
-function extract_type(typeinfo::TypeInfo, info::GIStructInfo) 
+function extract_type(typeinfo::TypeInfo, info::GIStructInfo)
     name = typename(info)
-    if is_pointer(typeinfo) 
+    if is_pointer(typeinfo)
         #TypeDesc(info,:Any,:(Ptr{$name}))
-        TypeDesc(info,:Any,:(Ptr{Void}))
+        TypeDesc(info,:Any,:(Ptr{Nothing}))
     else
         TypeDesc(info,name,name)
     end
 end
 
-extract_type(typeinfo::GITypeInfo,info::GIEnumOrFlags) = TypeDesc(info,:Any, :Enum)
-function convert_to_c{T<:GIEnumOrFlags}(argname::Symbol, info::GIArgInfo, ti::TypeDesc{T})
-    :( enum_get($(enum_name(ti.gitype)),$argname) ) 
+extract_type(typeinfo::GITypeInfo,info::GIEnumGIOrFlags) = TypeDesc(info,:Any, :EnumGI)
+function convert_to_c(argname::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:GIEnumGIOrFlags}
+    :( enum_get($(enum_name(ti.gitype)),$argname) )
 end
 
-function extract_type(typeinfo::GITypeInfo,info::Type{GICArray}) 
+function extract_type(typeinfo::GITypeInfo,info::Type{GICArray})
     @assert is_pointer(typeinfo)
     #elm = get_param_type(typeinfo,0)
     #TODO: something more intresting
-    TypeDesc(typeinfo,:Any, :(Ptr{Void}))
+    TypeDesc(typeinfo,:Any, :(Ptr{Nothing}))
 end
 
-function extract_type{T<:GLib._LList}(typeinfo::GITypeInfo,listtype::Type{T}) 
+function extract_type(typeinfo::GITypeInfo,listtype::Type{T}) where {T<:GLib._LList}
     @assert is_pointer(typeinfo)
     elm = get_param_type(typeinfo,0)
     elmtype = extract_type(elm).ctype
-    lt = listtype == GLib._GSList ? :(GLib._GSList) : :(GLib._GList) 
+    lt = listtype == GLib._GSList ? :(GLib._GSList) : :(GLib._GList)
     TypeDesc{Type{GList}}(GList, :(GLib.LList{$lt{$elmtype}}), :(Ptr{$lt{$elmtype}}))
 end
-function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{GList}}) 
+function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{GList}})
     #owns = get_ownership_transfer(arginfo) != TRANSFER_NOTHING
     expr = :( GLib.GList($name) )
 end
 
-function extract_type(typeinfo::GITypeInfo,info::GICallbackInfo) 
-    TypeDesc(info,:Any, :(Ptr{Void}))
+function extract_type(typeinfo::GITypeInfo,info::GICallbackInfo)
+    TypeDesc(info,:Any, :(Ptr{Nothing}))
 end
 
-typealias ObjectLike Union{GIObjectInfo, GIInterfaceInfo}
+const ObjectLike = Union{GIObjectInfo, GIInterfaceInfo}
 
-function typename(info::GIObjectInfo) 
+function typename(info::GIObjectInfo)
     g_type = GI.get_g_type(info)
-    symbol(GLib.g_type_name(g_type))
+    Symbol(GLib.g_type_name(g_type))
 end
 
 # not sure the best way to implement this given no multiple inheritance
@@ -301,11 +302,11 @@ function extract_type(typeinfo::TypeInfo, info::ObjectLike)
 end
 
 #this should only be used for stuff that's hard to implement as cconvert
-function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc) 
+function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc)
     nothing
 end
 
-function convert_from_c{T}(argname::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) 
+function convert_from_c(argname::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {T}
     if ti.jtype != :Any
         :(convert($(ti.jtype), $argname))
     else
@@ -313,7 +314,7 @@ function convert_from_c{T}(argname::Symbol, arginfo::ArgInfo, ti::TypeDesc{T})
     end
 end
 
-immutable Arg
+struct Arg
     name::Symbol
     typ
 end
@@ -321,7 +322,7 @@ types(args::Array{Arg}) = [a.typ for a in args]
 names(args::Array{Arg}) = [a.name for a in args]
 jparams(args::Array{Arg}) = [a.typ != :Any ? :($(a.name)::$(a.typ)) : a.name for a in args]
 #there's probably a better way
-function make_ccall(id, rtype, args) 
+function make_ccall(id, rtype, args)
     argtypes = Expr(:tuple, types(args)...)
     c_call = :(ccall($id, $rtype, $argtypes))
     append!(c_call.args, names(args))
@@ -329,7 +330,7 @@ function make_ccall(id, rtype, args)
 end
 
 function err_buf()
-    err = GI.mutable(Ptr{GError}); 
+    err = GI.mutable(Ptr{GError});
     err.x = C_NULL
     err
 end
@@ -337,12 +338,12 @@ function check_err(err::Mutable{Ptr{GError}})
     if err[] != C_NULL
         gerror = GError(err[])
         emsg = bytestring(gerror.message)
-        ccall((:g_clear_error,libglib),Void,(Ptr{Ptr{GError}},),err)
+        ccall((:g_clear_error,libglib),Nothing,(Ptr{Ptr{GError}},),err)
         error(emsg)
     end
 end
 # with some partial-evaluation half-magic
-# (or maybe just jit-compile-time macros) 
+# (or maybe just jit-compile-time macros)
 # this could be simplified significantly
 function create_method(info::GIFunctionInfo,ctx::GenContext)
     name = get_name(info)
@@ -361,7 +362,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
     end
     if flags & IS_CONSTRUCTOR != 0
         #FIXME: mimic the new constructor style of Gtk.jl
-        name = symbol("$(get_name(get_container(info)))_$name")
+        name = Symbol("$(get_name(get_container(info)))_$name")
     end
     rettype = extract_type(get_return_type(info))
     if rettype.ctype != :None
@@ -372,7 +373,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
         push!(retvals,:ret)
     end
     for arg in get_args(info)
-        aname = symbol("_$(get_name(arg))")
+        aname = Symbol("_$(get_name(arg))")
         typ = extract_type(arg)
         ensure_type(ctx,typ)
         dir = get_direction(arg)
@@ -388,7 +389,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
             push!(cargs, Arg(aname, typ.ctype))
         else
             ctype = typ.ctype
-            wname = symbol("m_$(get_name(arg))")
+            wname = Symbol("m_$(get_name(arg))")
             push!(prologue, :( $wname = GI.mutable($ctype) ))
             if dir == DIRECTION_INOUT
                 push!(prologue, :( $wname[] = Base.cconvert($ctype,$aname) ))
@@ -413,7 +414,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
     c_call = :( ret = $(make_ccall(string(symb), rettype.ctype, cargs)))
     if length(retvals) > 1
         retstmt = Expr(:tuple, retvals...)
-    elseif length(retvals) ==1 
+    elseif length(retvals) ==1
         retstmt = retvals[]
     else
         retstmt = :nothing
@@ -425,8 +426,8 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
     fun
 
 end
-    
-#convenience macro for testing 
+
+#convenience macro for testing
 #final API might be different
 macro gimport(ns, names)
     _name = (ns == :Gtk) ? :_Gtk : ns
@@ -435,13 +436,13 @@ macro gimport(ns, names)
     q = quote const $(esc(_name)) = $(NS) end
     if isa(names,Expr)  && names.head == :tuple
         names = names.args
-    else 
+    else
         names = [names]
     end
     for item in names
         if isa(item,Symbol)
             name = item; meths = []
-        else 
+        else
             name = item.args[1]
             meths = item.args[2:end]
         end
@@ -451,11 +452,9 @@ macro gimport(ns, names)
             push!(q.args, :(const $(esc(meth)) = $(GI.ensure_method(NS, name, meth))))
         end
         if isa(ns[name], GIObjectInfo) && find_method(ns[name], :new) != nothing
-            push!(q.args, :(const $(esc(symbol("$(name)_new"))) = $(GI.ensure_method(NS, name, :new))))
+            push!(q.args, :(const $(esc(Symbol("$(name)_new"))) = $(GI.ensure_method(NS, name, :new))))
         end
     end
     println(q)
     q
 end
-
-
