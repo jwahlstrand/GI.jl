@@ -1,5 +1,4 @@
 abstract type GIRepository end
-const girepo = ccall((:g_irepository_get_default, libgi), Ptr{GIRepository}, () )
 
 abstract type GITypelib end
 
@@ -113,17 +112,14 @@ function gi_require(namespace, version=nothing)
     GError() do error_check
         typelib = ccall((:g_irepository_require, libgi), Ptr{GITypelib},
             (Ptr{GIRepository}, Ptr{UInt8}, Ptr{UInt8}, Cint, Ptr{Ptr{GError}}),
-            girepo, namespace, version, 0, error_check)
+            C_NULL, namespace, version, 0, error_check)
         return  typelib !== C_NULL
     end
 end
 
 function gi_find_by_name(namespace, name)
-    #info = ccall((:g_irepository_find_by_name, libgi), Ptr{GIBaseInfo},
-    #       (Ptr{GIRepository}, Ptr{UInt8}, Ptr{UInt8}), girepo, namespace, name)
-
     info = ccall((:g_irepository_find_by_name, libgi), Ptr{GIBaseInfo},
-                  (Ptr{GIRepository}, Cstring, Cstring), girepo, namespace.name, name)
+                  (Ptr{GIRepository}, Cstring, Cstring), C_NULL, namespace.name, name)
 
     if info == C_NULL
         error("Name $name not found in $namespace")
@@ -135,10 +131,10 @@ end
 
 #TODO: make ns behave more like Array and/or Dict{Symbol,GIInfo}?
 length(ns::GINamespace) = Int(ccall((:g_irepository_get_n_infos, libgi), Cint,
-                               (Ptr{GIRepository}, Cstring), girepo, ns))
+                               (Ptr{GIRepository}, Cstring), C_NULL, ns))
 function getindex(ns::GINamespace, i::Integer)
     GIInfo(ccall((:g_irepository_get_info, libgi), Ptr{GIBaseInfo},
-              (Ptr{GIRepository}, Cstring, Cint), girepo, ns, i-1 ))
+              (Ptr{GIRepository}, Cstring, Cint), C_NULL, ns, i-1 ))
 end
 getindex(ns::GINamespace, name::Symbol) = gi_find_by_name(ns, name)
 
@@ -155,7 +151,7 @@ end
 
 
 function get_shlibs(ns)
-    names = ccall((:g_irepository_get_shared_library, libgi), Ptr{UInt8}, (Ptr{GIRepository}, Cstring), girepo, ns)
+    names = ccall((:g_irepository_get_shared_library, libgi), Ptr{UInt8}, (Ptr{GIRepository}, Cstring), C_NULL, ns)
     if names != C_NULL
         [bytestring(s) for s in split(bytestring(names),",")]
     else
@@ -165,7 +161,7 @@ end
 get_shlibs(info::GIInfo) = get_shlibs(get_namespace(info))
 
 function find_by_gtype(gtypeid::Csize_t)
-    GIInfo(ccall((:g_irepository_find_by_gtype, libgi), Ptr{GIBaseInfo}, (Ptr{GIRepository}, Csize_t), girepo, gtypeid))
+    GIInfo(ccall((:g_irepository_find_by_gtype, libgi), Ptr{GIBaseInfo}, (Ptr{GIRepository}, Csize_t), C_NULL, gtypeid))
 end
 
 GIInfoTypes[:method] = GIFunctionInfo
