@@ -215,7 +215,7 @@ for (owner,property,typ) in [
     (:base, :name, Symbol), (:base, :namespace, Symbol),
     (:base, :container, MaybeGIInfo), (:registered_type, :g_type, GType), (:object, :parent, MaybeGIInfo),
     (:callable, :return_type, GIInfo), (:callable, :caller_owns, EnumGI),
-    (:function, :flags, EnumGI), (:function, :Symbol, Symbol),
+    (:function, :flags, EnumGI), (:function, :symbol, Symbol),
     (:arg, :type, GIInfo), (:arg, :direction, EnumGI), (:arg, :ownership_transfer, EnumGI),
     (:type, :tag, EnumGI), (:type, :interface, GIInfo), (:type, :array_type, EnumGI),
     (:type, :array_length, Cint), (:type, :array_fixed_size, Cint), (:constant, :type, GIInfo),
@@ -288,7 +288,7 @@ function get_base_type(info::GITypeInfo)
         # Object Types n such
         get_interface(info)
     elseif tag == TAG_ARRAY
-        GIArrayType{int(get_array_type(info))}
+        GIArrayType{Integer(get_array_type(info))}
     elseif tag == TAG_GLIST
         GLib._GSList
     elseif tag == TAG_GSLIST
@@ -310,7 +310,7 @@ function show(io::IO,info::GITypeInfo)
     if is_pointer(info)
         print(io,"Ptr{")
     end
-    if isa(bt,Type) && bt <: GIArrayType && bt != None
+    if isa(bt,Type) && bt <: GIArrayType && bt != Nothing
         zero = is_zero_terminated(info)
         print(io,"$bt($zero,")
         fs = get_array_fixed_size(info)
@@ -326,7 +326,7 @@ function show(io::IO,info::GITypeInfo)
         param = get_param_type(info,0)
         show(io,param)
         print(io,")")
-    elseif isa(bt,Type) && bt <: GLib._LList && bt != None
+    elseif isa(bt,Type) && bt <: GLib._LList && bt != Nothing
         print(io,"$bt{")
         param = get_param_type(info,0)
         show(io,param)

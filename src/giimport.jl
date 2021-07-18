@@ -7,7 +7,7 @@ peval(ex) = (print(ex); eval(ex))
 function create_module(modname,decs)
     mod =  :(module ($modname); end)
     append!(mod.args[3].args,decs)
-    peval(Expr(:toplevel, mod, modname))
+    eval(Expr(:toplevel, mod, modname))
 end
 
 function get_ns(name::Symbol)
@@ -65,7 +65,7 @@ function get_ns(name::Symbol)
     write_exprs("DEBUG2", alldecs.args)
 
     mod = create_module(modname,decs)
-    eval(_AllTypes, alldecs)
+    Base.eval(_AllTypes, alldecs)
     _gi_modules[name] = mod
     mod
 end
@@ -178,10 +178,10 @@ end
 
 function load_name(mod,ns,name,info::GIFunctionInfo)
     fun = create_method(info,dynctx)
-    eval(mod,fun)
+    Base.eval(mod,fun)
 end
 
-peval(mod, expr) = (print(expr,'\n'); eval(mod,expr))
+peval(mod, expr) = (print(expr,'\n'); Base.eval(mod,expr))
 
 
 const _gi_methods = Dict{Tuple{Symbol,Symbol,Symbol},Any}()
@@ -195,7 +195,7 @@ function ensure_method(ns::GINamespace, rtype::Symbol, method::Symbol)
     end
     info = ns[rtype][method]
     expr = create_method(info,dynctx)
-    meth =  eval(_AllTypes,expr)
+    meth =  Base.eval(_AllTypes,expr)
     println(meth)
     println(typeof(meth))
     _gi_methods[qname] = meth
@@ -227,15 +227,17 @@ function extract_type(info::GITypeInfo, basetype::Type)
 end
 
 #  T<:SomeType likes to steal this:
-extract_type(info::GITypeInfo, basetype::Type{Union{}}) = TypeDesc(Union{}, :Any, :None)
+extract_type(info::GITypeInfo, basetype::Type{Union{}}) = TypeDesc(Union{}, :Any, :Nothing)
 
 function extract_type(info::GITypeInfo, basetype::Type{String})
     @assert is_pointer(info)
-    TypeDesc{Type{String}}(String,:Any,:(Ptr{Uint8}))
+    TypeDesc{Type{String}}(String,:Any,:(Ptr{UInt8}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}})
     owns = get_ownership_transfer(arginfo) != TRANSFER_NOTHING
-    expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name, $owns))
+    # Glib.bytestring(bytes,owns) was removed
+    #expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name, $owns))
+    expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name))
 end
 
 function typename(info::GIStructInfo)
@@ -365,7 +367,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
         name = Symbol("$(get_name(get_container(info)))_$name")
     end
     rettype = extract_type(get_return_type(info))
-    if rettype.ctype != :None
+    if rettype.ctype != :Nothing
         expr = convert_from_c(:ret,info,rettype)
         if expr != nothing
             push!(epilogue, :(ret = $expr))
@@ -406,7 +408,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
     if flags & THROWS != 0
         push!(prologue, :( err = GI.err_buf() ))
         push!(cargs, Arg(:err, :(Ptr{Ptr{GError}})))
-        unshift!(epilogue, :( GI.check_err(err) ))
+        pushfirst!(epilogue, :( GI.check_err(err) ))
     end
 
     symb = get_symbol(info)
@@ -420,7 +422,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
         retstmt = :nothing
     end
     blk = Expr(:block)
-    blk.args = [ prologue, c_call, epilogue, retstmt ]
+    blk.args = vcat(prologue, c_call, epilogue, retstmt )
     fun = Expr(:function, j_call, blk)
     println(fun)
     fun
