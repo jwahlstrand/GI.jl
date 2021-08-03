@@ -189,7 +189,7 @@ for (owner, property) in [
     (:object, :method), (:object, :signal), (:object, :interface),
     (:object, :property), (:object, :constant), (:object, :field),
     (:interface, :method), (:interface, :signal), (:callable, :arg),
-    (:enum, :value)]
+    (:enum, :value), (:struct, :field), (:struct, :method)]
     @eval function $(Symbol("get_$(property)s"))(info::$(GIInfoTypes[owner]))
         n = Int(ccall(($("g_$(owner)_info_get_n_$(property)s"), libgi), Cint, (Ptr{GIBaseInfo},), info))
         GIInfo[ GIInfo( ccall(($("g_$(owner)_info_get_$property"), libgi), Ptr{GIBaseInfo},
@@ -212,14 +212,14 @@ ctypes = Dict(GIInfo=>Ptr{GIBaseInfo},
          MaybeGIInfo=>Ptr{GIBaseInfo},
           Symbol=>Ptr{UInt8})
 for (owner,property,typ) in [
-    (:base, :name, Symbol), (:base, :namespace, Symbol),
+    (:base, :name, Symbol), (:base, :namespace, Symbol), (:base, :type, Int),
     (:base, :container, MaybeGIInfo), (:registered_type, :g_type, GType), (:object, :parent, MaybeGIInfo),
     (:callable, :return_type, GIInfo), (:callable, :caller_owns, EnumGI),
     (:function, :flags, EnumGI), (:function, :symbol, Symbol),
     (:arg, :type, GIInfo), (:arg, :direction, EnumGI), (:arg, :ownership_transfer, EnumGI),
     (:type, :tag, EnumGI), (:type, :interface, GIInfo), (:type, :array_type, EnumGI),
     (:type, :array_length, Cint), (:type, :array_fixed_size, Cint), (:constant, :type, GIInfo),
-    (:value, :value, Int64) ]
+    (:value, :value, Int64), (:field, :type, GIInfo) ]
 
     ctype = get(ctypes, typ, typ)
     @eval function $(Symbol("get_$(property)"))(info::$(GIInfoTypes[owner]))
@@ -240,7 +240,12 @@ get_type(ai::GICallableInfo) = get_return_type(ai)
 
 qual_name(info::GIRegisteredTypeInfo) = (get_namespace(info),get_name(info))
 
-for (owner,flag) in [ (:type, :is_pointer), (:callable, :may_return_null), (:arg, :is_caller_allocates), (:arg, :may_be_null), (:type, :is_zero_terminated) ]
+for (owner,flag) in [
+    (:type, :is_pointer), (:callable, :may_return_null), (:callable, :skip_return),
+    (:arg, :is_caller_allocates), (:arg, :may_be_null),
+    (:arg, :is_skip), (:arg, :is_return_value), (:arg, :is_optional),
+    (:type, :is_zero_terminated), (:base, :is_deprecated), (:struct, :is_gtype_struct) ]
+    
     @eval function $flag(info::$(GIInfoTypes[owner]))
         ret = ccall(($("g_$(owner)_info_$(flag)"), libgi), Cint, (Ptr{GIBaseInfo},), info)
         return ret != 0
@@ -270,6 +275,9 @@ const TAG_ARRAY = 15
 const TAG_INTERFACE = 16
 const TAG_GLIST = 17
 const TAG_GSLIST = 18
+const TAG_GHASH = 19
+const TAG_GERROR = 20
+const TAG_UNICHAR = 21
 
 
 abstract type GIArrayType{kind} end
@@ -290,9 +298,11 @@ function get_base_type(info::GITypeInfo)
     elseif tag == TAG_ARRAY
         GIArrayType{Integer(get_array_type(info))}
     elseif tag == TAG_GLIST
-        GLib._GSList
-    elseif tag == TAG_GSLIST
         GLib._GList
+    elseif tag == TAG_GSLIST
+        GLib._GSList
+    elseif tag == TAG_GERROR
+        GLib.GError
     elseif tag == TAG_FILENAME
         String #FIXME: on funky platforms this may not be utf8/ascii
     else
