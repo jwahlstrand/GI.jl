@@ -129,26 +129,15 @@ end
 
 #GIInfo(namespace, name::Symbol) = gi_find_by_name(namespace, name)
 
-#TODO: make ns behave more like Array and/or Dict{Symbol,GIInfo}?
-length(ns::GINamespace) = Int(ccall((:g_irepository_get_n_infos, libgi), Cint,
+Base.length(ns::GINamespace) = Int(ccall((:g_irepository_get_n_infos, libgi), Cint,
                                (Ptr{GIRepository}, Cstring), C_NULL, ns))
-function getindex(ns::GINamespace, i::Integer)
-    GIInfo(ccall((:g_irepository_get_info, libgi), Ptr{GIBaseInfo},
-              (Ptr{GIRepository}, Cstring, Cint), C_NULL, ns, i-1 ))
-end
+Base.iterate(ns::GINamespace, state=1) = state > length(ns) ? nothing : (GIInfo(ccall((:g_irepository_get_info, libgi), Ptr{GIBaseInfo},
+                                             (Ptr{GIRepository}, Cstring, Cint), C_NULL, ns, state-1 )), state+1)
+Base.eltype(::Type{GINamespace}) = GIInfo
+
 getindex(ns::GINamespace, name::Symbol) = gi_find_by_name(ns, name)
 
-function get_all(ns::GINamespace, t::Type{T}) where {T<:GIInfo}
-    all = GIInfo[]
-    for i=1:length(ns)
-        info = ns[i]
-        if isa(info,t)
-            push!(all,info)
-        end
-    end
-    all
-end
-
+get_all(ns::GINamespace, t::Type{T}) where {T<:GIInfo} = [info for info=ns if isa(info,t)]
 
 function get_shlibs(ns)
     names = ccall((:g_irepository_get_shared_library, libgi), Ptr{UInt8}, (Ptr{GIRepository}, Cstring), C_NULL, ns)
@@ -245,7 +234,7 @@ for (owner,flag) in [
     (:arg, :is_caller_allocates), (:arg, :may_be_null),
     (:arg, :is_skip), (:arg, :is_return_value), (:arg, :is_optional),
     (:type, :is_zero_terminated), (:base, :is_deprecated), (:struct, :is_gtype_struct) ]
-    
+
     @eval function $flag(info::$(GIInfoTypes[owner]))
         ret = ccall(($("g_$(owner)_info_$(flag)"), libgi), Cint, (Ptr{GIBaseInfo},), info)
         return ret != 0
@@ -349,13 +338,20 @@ function show(io::IO,info::GITypeInfo)
     end
 end
 
+function get_constant_value(typ,info)
+    eval(quote
+        x = Ref{$typ}(0)
+        size = ccall((:g_constant_info_get_value,libgi),Cint,(Ptr{GIBaseInfo}, Ref{$typ}), $info, x)
+        x[]
+    end)
+end
+
 function get_value(info::GIConstantInfo)
     typ = get_base_type(info)
-
-    if typ <: Number
-        x = Ref{Int64}(0)#Array{Int64,1}(undef,1) #or mutable
-        size = ccall((:g_constant_info_get_value,libgi),Cint,(Ptr{GIBaseInfo}, Ref{Int64}), info, x)
-        x[] #unsafe_load(cconvert(Ptr{typ}, x))
+    if typ in typetag_primitive[2:12]
+        get_constant_value(typ,info)
+    elseif typ <: Number # backup
+        get_constant_value(Int64,info)
     elseif typ == String
         x = Array{Cstring,1}(undef,1) #or mutable
         size = ccall((:g_constant_info_get_value,libgi),Cint,(Ptr{GIBaseInfo}, Ptr{Cstring}), info, x)
@@ -393,7 +389,6 @@ function get_enums(gns)
 end
 
 function get_enum_values(info::GIEnumGIOrFlags)
-    valinfos = get_values(info)
     [(get_name(i),get_value(i)) for i in get_values(info)]
 end
 
