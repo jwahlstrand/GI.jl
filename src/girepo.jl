@@ -10,14 +10,13 @@ end
 
 function GIInfo(h::Ptr{GIBaseInfo},owns=true)
     if h == C_NULL
-        error("Cannot constrct GIInfo from NULL")
+        error("Cannot construct GIInfo from NULL")
     end
     typeid = ccall((:g_base_info_get_type, libgi), Int, (Ptr{GIBaseInfo},), h)
     info = GIInfo{typeid}(h)
     owns && finalizer(info_unref, info)
     info
 end
-maybeginfo(h::Ptr{GIBaseInfo}) = (h == C_NULL) ? nothing : GIInfo(h)
 
 # don't call directly, called by gc
 function info_unref(info::GIInfo)
@@ -65,7 +64,7 @@ show(io::IO, info::GIArgInfo) = print(io,"GIArgInfo(:$(get_name(info)),$(extract
 function show(io::IO, info::GIFunctionInfo)
     print(io, "$(get_namespace(info)).")
     flags = get_flags(info)
-    if flags & (IS_CONSTRUCTOR | IS_METHOD) != 0
+    if flags & (GIFunction.IS_CONSTRUCTOR | GIFunction.IS_METHOD) != 0
         cls = get_container(info)
         print(io, "$(get_name(cls)).")
     end
@@ -75,16 +74,16 @@ function show(io::IO, info::GIFunctionInfo)
         show(io, get_type(arg))
         dir = get_direction(arg)
         alloc = is_caller_allocates(arg)
-        if dir == DIRECTION_OUT
+        if dir == GIDirection.OUT
             print(io, " OUT($alloc)")
-        elseif dir == DIRECTION_INOUT
+        elseif dir == GIDirection.INOUT
             print(io, " INOUT")
         end
         print(io, ", ")
     end
     print(io,")::")
     show(io, get_return_type(info))
-    if flags & THROWS != 0
+    if flags & GIFunction.THROWS != 0
         print(io, " THROWS")
     end
 
@@ -137,7 +136,9 @@ Base.eltype(::Type{GINamespace}) = GIInfo
 
 getindex(ns::GINamespace, name::Symbol) = gi_find_by_name(ns, name)
 
-get_all(ns::GINamespace, t::Type{T}) where {T<:GIInfo} = [info for info=ns if isa(info,t)]
+function get_all(ns::GINamespace, t::Type{T},exclude_deprecated=true) where {T<:GIInfo}
+    [info for info=ns if isa(info,t) && (exclude_deprecated ? !is_deprecated(info) : true)]
+end
 
 function get_shlibs(ns)
     names = ccall((:g_irepository_get_shared_library, libgi), Ptr{UInt8}, (Ptr{GIRepository}, Cstring), C_NULL, ns)
@@ -194,7 +195,7 @@ for (owner, property) in [
 end
 getindex(info::GIRegisteredTypeInfo, name::Symbol) = find_method(info, name)
 
-const MaybeGIInfo = Union{GIInfo,Nothing}
+const MaybeGIInfo = Maybe(GIInfo)
 # one->one
 # FIXME: memory management of GIInfo:s
 ctypes = Dict(GIInfo=>Ptr{GIBaseInfo},
@@ -206,7 +207,7 @@ for (owner,property,typ) in [
     (:callable, :return_type, GIInfo), (:callable, :caller_owns, EnumGI),
     (:function, :flags, EnumGI), (:function, :symbol, Symbol),
     (:arg, :type, GIInfo), (:arg, :direction, EnumGI), (:arg, :ownership_transfer, EnumGI),
-    (:type, :tag, EnumGI), (:type, :interface, GIInfo), (:type, :array_type, EnumGI),
+    (:type, :tag, EnumGI), (:type, :interface, MaybeGIInfo), (:type, :array_type, EnumGI),
     (:type, :array_length, Cint), (:type, :array_fixed_size, Cint), (:constant, :type, GIInfo),
     (:value, :value, Int64), (:field, :type, GIInfo) ]
 
@@ -368,9 +369,9 @@ function get_value(info::GIConstantInfo)
     end
 end
 
-function get_consts(gns)
+function get_consts(gns,exclude_deprecated=true)
     consts = Tuple{Symbol,Any}[]
-    for c in get_all(gns,GIConstantInfo)
+    for c in get_all(gns,GIConstantInfo,exclude_deprecated)
         name = get_name(c)
         if !occursin(r"^[a-zA-Z_]",string(name))
             name = Symbol("_$name") #FIXME: might collide
@@ -383,8 +384,8 @@ function get_consts(gns)
     consts
 end
 
-function get_enums(gns)
-    enums = get_all(gns, GIEnumGIOrFlags)
+function get_enums(gns,exclude_deprecated=true)
+    enums = get_all(gns, GIEnumGIOrFlags,exclude_deprecated)
     [(get_name(enum),get_enum_values(enum),isa(enum,GIFlagsInfo)) for enum in enums]
 end
 
@@ -392,17 +393,28 @@ function get_enum_values(info::GIEnumGIOrFlags)
     [(get_name(i),get_value(i)) for i in get_values(info)]
 end
 
-const IS_METHOD     = 1 << 0
-const IS_CONSTRUCTOR = 1 << 1
-const IS_GETTER      = 1 << 2
-const IS_SETTER      = 1 << 3
-const WRAPS_VFUNC    = 1 << 4
-const THROWS = 1 << 5
+function get_structs(gns,exclude_deprecated=true)
+    structs = get_all(gns, GIStructInfo, exclude_deprecated)
+    [(get_name(s),get_fields(s),get_methods(s),is_deprecated(s)) for s in structs]
+end
 
-const DIRECTION_IN = 0
-const DIRECTION_OUT =1
-const DIRECTION_INOUT =2
+baremodule GIFunction
+    const IS_METHOD      = 1
+    const IS_CONSTRUCTOR = 2
+    const IS_GETTER      = 4
+    const IS_SETTER      = 8
+    const WRAPS_VFUNC    = 16
+    const THROWS         = 32
+end
 
-const TRANSFER_NOTHING =0
-const TRANSFER_CONTAINER =1
-const TRANSFER_EVERYTHING =2
+baremodule GIDirection
+    const IN = 0
+    const OUT =1
+    const INOUT =2
+end
+
+baremodule GITransfer
+    const NOTHING =0
+    const CONTAINER =1
+    const EVERYTHING =2
+end
