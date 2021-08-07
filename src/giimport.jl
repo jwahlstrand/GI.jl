@@ -20,10 +20,9 @@ function get_ns(name::Symbol)
     for path=get_shlibs(gns)
         dlopen(path,RTLD_GLOBAL)
     end
-    #decs = Expr[ Expr(:using, :., :., :GI, :_AllTypes), Expr(:using, :Gtk, :(Gtk.GLib)) ]
-    decs = Expr[ Expr(:using, :GI, :_AllTypes), Expr(:using, :Gtk), Expr(:using, Symbol("Gtk.GLib")) ]
+    decs = Expr[ Meta.parse("using GI._AllTypes"), Meta.parse("using Gtk"), Meta.parse("using Gtk.GLib") ]
     alldecs = Expr(:block)
-    push!(alldecs.args, Expr(:import, :GI, modname))
+    push!(alldecs.args, Meta.parse("import GI.$(modname)"))
     exports = Expr(:export)
     push!(decs, exports)
     append!(decs, const_decls(gns))
@@ -109,6 +108,25 @@ function enum_decls(ns)
 end
 enum_name(enum) = Symbol(string(get_namespace(enum),get_name(enum)))
 
+function struct_decl(structname,fields,prefix)
+    gstructname = string(prefix)*string(structname)
+    gstructname2 = Symbol(gstructname)
+    fieldsexpr=[]
+    for field in fields
+        field1=get_name(field)
+        type1=extract_type(field).ctype
+        push!(fieldsexpr,:($field1::$type1))
+    end
+    quote
+        struct $gstructname2
+            $(fieldsexpr...)
+        end
+        mutable struct $structname # define the struct
+            handle::Ptr{Any}
+        end
+        nothing
+    end
+end
 
 ensure_name(ns::GINamespace, name) = ensure_name(get_ns(ns.name), name)
 function ensure_name(mod::Module, name::Symbol)
@@ -169,7 +187,7 @@ function load_name(mod,ns,name::Symbol,info::GIObjectInfo)
     if find_method(ns[name], :new) != nothing
         ensure_method(ns,name,:new)
     end
-    mod.(name)
+    getfield(mod,name)
 end
 
 function load_name(mod,ns,name::Symbol,info::GIInterfaceInfo)
@@ -213,6 +231,7 @@ struct TypeDesc{T}
 end
 
 extract_type(info::GIArgInfo) = extract_type(get_type(info))
+extract_type(info::GIFieldInfo) = extract_type(get_type(info))
 function extract_type(info::GITypeInfo)
     base_type = get_base_type(info)
     extract_type(info,base_type)
@@ -234,7 +253,7 @@ function extract_type(info::GITypeInfo, basetype::Type{String})
     TypeDesc{Type{String}}(String,:Any,:(Ptr{UInt8}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}})
-    owns = get_ownership_transfer(arginfo) != TRANSFER_NOTHING
+    owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
     # Glib.bytestring(bytes,owns) was removed
     #expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name, $owns))
     expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name))
@@ -247,8 +266,7 @@ end
 function extract_type(typeinfo::TypeInfo, info::GIStructInfo)
     name = typename(info)
     if is_pointer(typeinfo)
-        #TypeDesc(info,:Any,:(Ptr{$name}))
-        TypeDesc(info,:Any,:(Ptr{Nothing}))
+        TypeDesc(info,:(Ptr{$name}),:(Ptr{$name}))
     else
         TypeDesc(info,name,name)
     end
@@ -274,7 +292,7 @@ function extract_type(typeinfo::GITypeInfo,listtype::Type{T}) where {T<:GLib._LL
     TypeDesc{Type{GList}}(GList, :(GLib.LList{$lt{$elmtype}}), :(Ptr{$lt{$elmtype}}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{GList}})
-    #owns = get_ownership_transfer(arginfo) != TRANSFER_NOTHING
+    #owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
     expr = :( GLib.GList($name) )
 end
 
@@ -356,13 +374,13 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
     retvals = Symbol[]
     cargs = Arg[]
     jargs = Arg[]
-    if flags & IS_METHOD != 0
+    if flags & GIFunction.IS_METHOD != 0
         object = get_container(info)
         typeinfo = extract_type(InstanceType,object)
         push!(jargs, Arg(:instance, typeinfo.jtype))
         push!(cargs, Arg(:instance, typeinfo.ctype))
     end
-    if flags & IS_CONSTRUCTOR != 0
+    if flags & GIFunction.IS_CONSTRUCTOR != 0
         #FIXME: mimic the new constructor style of Gtk.jl
         name = Symbol("$(get_name(get_container(info)))_$name")
     end
@@ -379,7 +397,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
         typ = extract_type(arg)
         ensure_type(ctx,typ)
         dir = get_direction(arg)
-        if dir != DIRECTION_OUT
+        if dir != GIDirection.OUT
             push!(jargs, Arg( aname, typ.jtype))
             expr = convert_to_c(aname,arg,typ)
             if expr != nothing
@@ -387,13 +405,13 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
             end
         end
 
-        if dir == DIRECTION_IN
+        if dir == GIDirection.IN
             push!(cargs, Arg(aname, typ.ctype))
         else
             ctype = typ.ctype
             wname = Symbol("m_$(get_name(arg))")
             push!(prologue, :( $wname = GI.mutable($ctype) ))
-            if dir == DIRECTION_INOUT
+            if dir == GIDirection.INOUT
                 push!(prologue, :( $wname[] = Base.cconvert($ctype,$aname) ))
             end
             push!(cargs, Arg(wname, :(Ptr{$ctype})))
@@ -405,7 +423,7 @@ function create_method(info::GIFunctionInfo,ctx::GenContext)
             push!(retvals, aname)
         end
     end
-    if flags & THROWS != 0
+    if flags & GIFunction.THROWS != 0
         push!(prologue, :( err = GI.err_buf() ))
         push!(cargs, Arg(:err, :(Ptr{Ptr{GError}})))
         pushfirst!(epilogue, :( GI.check_err(err) ))
