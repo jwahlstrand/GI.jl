@@ -140,6 +140,35 @@ function get_all(ns::GINamespace, t::Type{T},exclude_deprecated=true) where {T<:
     [info for info=ns if isa(info,t) && (exclude_deprecated ? !is_deprecated(info) : true)]
 end
 
+function get_c_prefix(ns)
+    ret = ccall((:g_irepository_get_c_prefix, libgi), Ptr{UInt8}, (Ptr{GIRepository}, Cstring), C_NULL, ns)
+    if ret != C_NULL
+        bytestring(ret)
+    else
+        ""
+    end
+end
+
+function bytestring_array(ptr)
+    ret=String[]
+    i=1
+    while unsafe_load(ptr,i)!=C_NULL
+        push!(ret,bytestring(unsafe_load(ptr,i)))
+        i+=1
+    end
+    ret
+end
+
+function get_dependencies(ns)
+    ret = ccall((:g_irepository_get_dependencies, libgi), Ptr{Ptr{UInt8}}, (Ptr{GIRepository}, Cstring), C_NULL, ns)
+    bytestring_array(ret)
+end
+
+function get_immediate_dependencies(ns)
+    ret = ccall((:g_irepository_get_immediate_dependencies, libgi), Ptr{Ptr{UInt8}}, (Ptr{GIRepository}, Cstring), C_NULL, ns)
+    bytestring_array(ret)
+end
+
 function get_shlibs(ns)
     names = ccall((:g_irepository_get_shared_library, libgi), Ptr{UInt8}, (Ptr{GIRepository}, Cstring), C_NULL, ns)
     if names != C_NULL

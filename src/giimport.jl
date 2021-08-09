@@ -109,8 +109,8 @@ end
 enum_name(enum) = Symbol(string(get_namespace(enum),get_name(enum)))
 
 function struct_decl(structname,fields,prefix)
-    gstructname = string(prefix)*string(structname)
-    gstructname2 = Symbol(gstructname)
+    gstructname = Symbol(prefix,structname)
+
     fieldsexpr=[]
     for field in fields
         field1=get_name(field)
@@ -118,13 +118,9 @@ function struct_decl(structname,fields,prefix)
         push!(fieldsexpr,:($field1::$type1))
     end
     quote
-        struct $gstructname2
+        mutable struct $gstructname
             $(fieldsexpr...)
         end
-        mutable struct $structname # define the struct
-            handle::Ptr{Any}
-        end
-        nothing
     end
 end
 
@@ -261,7 +257,11 @@ end
 
 function typename(info::GIStructInfo)
     g_type = GI.get_g_type(info)
-    Symbol(GLib.g_type_name(g_type))
+    if Symbol(GLib.g_type_name(g_type))===:void  # this isn't a GType
+        Symbol(get_name(info))
+    else
+        Symbol(GLib.g_type_name(g_type))
+    end
 end
 function extract_type(typeinfo::TypeInfo, info::GIStructInfo)
     name = typename(info)
