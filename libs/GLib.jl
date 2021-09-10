@@ -27,7 +27,7 @@ export @sigatom, cfunction_
 export gtype_abstracts, gtype_wrappers, GVariantDict, GBytes, GVariantType
 export GKeyFile, GDateTime
 
-export GValue,GParamSpec
+export GValue,GParamSpec, GTypeModule
 
 Maybe(T) = Union{T,Nothing}
 

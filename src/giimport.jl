@@ -175,6 +175,7 @@ function all_struct_exprs!(exprs,ns;print_summary=true,excludelist=[],import_as_
             if print_summary
                 printstyled(name," not implemented\n";color=:red)
             end
+            push!(struct_skiplist,name)
             imported-=1
         end
         #push!(exports.args, name)
@@ -276,6 +277,73 @@ function all_functions!(exprs,ns;skiplist=[])
     println("created ",j," functions")
     println("skipped ",skipped," out of ",j+skipped," functions")
     println(not_implemented," functions not implemented")
+end
+
+function obj_decl!(exprs,o,ns,handled)
+    if in(GI.get_name(o),handled)
+        return
+    end
+    p=GI.get_parent(o)
+    if !in(GI.get_name(p),handled) && GI.get_namespace(o) == GI.get_namespace(p)
+        obj_decl!(exprs,p,ns,handled)
+    end
+    append!(exprs,GI.gobject_decl(o,GI.get_c_prefix(ns)))
+    push!(handled,GI.get_name(o))
+end
+
+function all_objects!(exprs,ns;handled=[])
+    objects=GI.get_all(ns,GI.GIObjectInfo)
+
+    imported=length(objects)
+    for o in objects
+        name=GI.get_name(o)
+        if name==:Object
+            imported -= 1
+            continue
+        end
+        type_init = GI.get_type_init(o)
+        if type_init==:intern  # GParamSpec and children output this
+            continue
+        end
+        obj_decl!(exprs,o,ns,handled)
+    end
+
+    println("Imported ",imported," objects out of ",length(objects))
+end
+
+function all_object_methods!(exprs,ns;skiplist=[],object_skiplist=[])
+    not_implemented=0
+    skipped=0
+    created=0
+    objects=GI.get_all(ns,GI.GIObjectInfo)
+    for o in objects
+        name=GI.get_name(o)
+        println("Object: ",name)
+        methods=GI.get_methods(o)
+        if in(name,object_skiplist)
+            skipped+=length(methods)
+            continue
+        end
+        for m in methods
+            println(GI.get_name(m))
+            if in(GI.get_name(m),skiplist)
+                skipped+=1
+                continue
+            end
+            if GI.is_deprecated(m)
+                continue
+            end
+            try
+                fun=GI.create_method(m,GI.get_c_prefix(ns))
+                push!(exprs, fun)
+                created+=1
+            catch NotImplementedError
+                not_implemented+=1
+            #catch LoadError
+            #    println("error")
+            end
+        end
+    end
 end
 
 function gobject_decl(objectinfo,prefix)

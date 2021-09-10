@@ -24,7 +24,7 @@ push!(const_mod.args,const_exports)
 
 push!(exprs, Expr(:toplevel,Expr(:module, true, :Constants, const_mod)))
 
-## export constants, enums, and structs code
+## export constants, enums, and flags code
 open("../libs/glib_consts","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)

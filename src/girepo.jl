@@ -123,6 +123,8 @@ convert(::Type{Ptr{UInt8}}, ns::GINamespace) = convert(Ptr{UInt8}, ns.name)
 unsafe_convert(::Type{Symbol}, ns::GINamespace) = ns.name
 unsafe_convert(::Type{Ptr{UInt8}}, ns::GINamespace) = convert(Ptr{UInt8}, ns.name)
 
+Base.:(==)(a::GINamespace, b::GINamespace) = (a.name === b.name)
+
 function gi_require(namespace::Symbol, version=nothing)
     if version==nothing
         version = C_NULL
