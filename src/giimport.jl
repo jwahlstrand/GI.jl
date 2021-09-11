@@ -448,9 +448,7 @@ function extract_type(info::GITypeInfo, basetype::Type{String})
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}})
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
-    # Glib.bytestring(bytes,owns) was removed
-    #expr = :( ($name == C_NULL) ? nothing : GLib.bytestring($name, $owns))
-    expr = :( ($name == C_NULL) ? nothing : bytestring($name))
+    expr = :( ($name == C_NULL) ? nothing : bytestring($name, $owns))
 end
 
 function typename(info::GIStructInfo)
@@ -680,6 +678,7 @@ function create_method(info::GIFunctionInfo,prefix)
             push!(retvals, aname)
         end
     end
+
     # go through args again, remove length jargs for array inputs, add call
     # to length() to prologue
     args=get_args(info)
@@ -694,7 +693,6 @@ function create_method(info::GIFunctionInfo,prefix)
         arrlen=get_array_length(typeinfo)
         if typ.gitype == GICArray && arrlen >= 0
             len_name=Symbol("_",get_name(args[arrlen+1]))
-            #println("found an array: $name, $aname, arrlen is $arrlen, which is $(len_name)")
             len_i=findfirst(a->(a.name === len_name),jargs)
             deleteat!(jargs,len_i)
             push!(prologue, :($len_name = length($aname)))

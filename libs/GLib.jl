@@ -45,7 +45,13 @@ const AbstractStringLike = Union{AbstractString, Symbol}
 bytestring(s) = String(s)
 bytestring(s::Symbol) = s
 bytestring(s::Ptr{UInt8}) = unsafe_string(s)
-# bytestring(s::Ptr{UInt8}, own::Bool=false) = unsafe_string(s)
+function bytestring(s::Ptr{UInt8}, own::Bool=false)
+    str=unsafe_string(s)
+    if own
+        g_free(s)
+    end
+    str
+end
 
 g_malloc(s::Integer) = ccall((:g_malloc, libglib), Ptr{Nothing}, (Csize_t,), s)
 g_free(p::Ptr) = ccall((:g_free, libglib), Nothing, (Ptr{Nothing},), p)
@@ -86,9 +92,25 @@ end
 
 include("signals.jl")
 
-eval(include("../gen/glib_methods_callbacks_functions"))
+eval(include("glib_methods"))
+eval(include("glib_functions"))
 
 eval(include("gobject_structs"))
-eval(include("../gen/gobject_methods_callbacks_functions"))
+eval(include("gobject_methods"))
+eval(include("gobject_functions"))
+
+function init_main_loop()
+    main_loop = GLib.MainLoop_new(nothing, true)
+
+    g_main() = GLib.g_sigatom() do
+        GLib.run(main_loop)
+    end
+
+    # if g_main_depth > 0, a glib main-loop is already running,
+    # so we don't need to start a new one
+    if ccall((:g_main_depth, GLib.libglib), Cint, ()) == 0
+        global g_main_task = schedule(Task(g_main))
+    end
+end
 
 end

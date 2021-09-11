@@ -32,32 +32,16 @@ exports = Expr(:export)
 
 ## objects
 
-objects=GI.get_all(ns,GI.GIObjectInfo)
-
-imported=length(objects)
-for o in objects
-    name=GI.get_name(o)
-    if name==:Object
-        global imported -= 1
-        continue
-    end
-    println(name)
-    type_init = GI.get_type_init(o)
-    if type_init==:intern  # GParamSpec and children output this
-        continue
-    end
-    append!(exprs,GI.gobject_decl(o,GI.get_c_prefix(ns)))
-end
-
-println("Imported ",imported," objects out of ",length(objects))
+GI.all_objects!(exprs,ns;handled=[:Object])
 
 ## struct methods
 
 structs=GI.get_structs(ns)
 
-skiplist=[]
+skiplist=[:init_from_instance]
 
 filter!(x->x≠:Variant,struct_skiplist)
+filter!(x->x≠:Value,struct_skiplist)
 
 GI.all_struct_methods!(exprs,ns,skiplist=skiplist,struct_skiplist=struct_skiplist)
 
@@ -66,43 +50,18 @@ GI.all_struct_methods!(exprs,ns,skiplist=skiplist,struct_skiplist=struct_skiplis
 skiplist=[:interface_find_property,:interface_install_property,:interface_list_properties,
 :bind_property_full,:watch_closure,:add_interface,:register_enum,:register_flags,:register_type]
 
-not_implemented=0
-skipped=0
-created=0
-for o in objects
-    name=GI.get_name(o)
-    println("Object: ",name)
-    methods=GI.get_methods(o)
-    #if in(name,object_skiplist)
-    #    if name != :Object
-    #        global skipped+=length(methods)
-    #        continue
-    #    end
-    #end
-    for m in methods
-        println(GI.get_name(m))
-        if in(GI.get_name(m),skiplist)
-            global skipped+=1
-            continue
-        end
-        if GI.is_deprecated(m)
-            continue
-        end
-        try
-            fun=GI.create_method(m,GI.get_c_prefix(ns))
-            push!(exprs, fun)
-            global created+=1
-        catch NotImplementedError
-            global not_implemented+=1
-        #catch LoadError
-        #    println("error")
-        end
-    end
+GI.all_object_methods!(exprs,ns;skiplist=skiplist)
+
+open("../libs/gobject_methods","w") do f
+    Base.println(f,"quote")
+    Base.show_unquoted(f, toplevel)
+    println(f)
+    Base.println(f,"end")
 end
 
 ## object properties
 
-for o in objects
+for o in GI.get_all(ns,GI.GIObjectInfo)
     name=GI.get_name(o)
     properties=GI.get_properties(o)
     for p in properties
@@ -143,7 +102,7 @@ skiplist=[:enum_complete_type_info,:enum_register_static,:flags_complete_type_in
 
 GI.all_functions!(exprs,ns,skiplist=skiplist)
 
-open("gobject_methods_callbacks_functions","w") do f
+open("../libs/gobject_functions","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     println(f)
