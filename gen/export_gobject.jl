@@ -1,10 +1,7 @@
 using GI
 using Libdl
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 ns = GINamespace(:GObject,"2.0")
 
@@ -24,18 +21,11 @@ struct_skiplist = GI.all_struct_exprs!(exprs,ns;excludelist=struct_skiplist,impo
 GI.all_objects!(exprs,ns;handled=[:Object])
 GI.all_interfaces!(exprs,ns)
 
-open("../libs/gen/gobject_structs","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/gobject_structs",toplevel)
 
 ## struct methods
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 structs=GI.get_structs(ns)
 
@@ -53,12 +43,7 @@ skiplist=[:interface_find_property,:interface_install_property,:interface_list_p
 
 GI.all_object_methods!(exprs,ns;skiplist=skiplist)
 
-open("../libs/gen/gobject_methods","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    println(f)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/gobject_methods",toplevel)
 
 ## object properties
 
@@ -91,10 +76,7 @@ end
 
 ## functions
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 skiplist=[:enum_complete_type_info,:enum_register_static,:flags_complete_type_info,
 :flags_register_static,:param_type_register_static,:signal_accumulator_first_wins,
@@ -109,9 +91,4 @@ skiplist=[:enum_complete_type_info,:enum_register_static,:flags_complete_type_in
 
 GI.all_functions!(exprs,ns,skiplist=skiplist)
 
-open("../libs/gen/gobject_functions","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    println(f)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/gobject_functions",toplevel)

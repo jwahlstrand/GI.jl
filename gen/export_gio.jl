@@ -1,9 +1,6 @@
 using GI
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 ns = GINamespace(:Gio,"2.0")
 
@@ -13,18 +10,11 @@ const_mod = GI.all_const_exprs(ns)
 push!(exprs, Expr(:toplevel,Expr(:module, true, :Constants, const_mod)))
 
 ## export constants, enums, and flags code
-open("../libs/gen/gio_consts","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/gio_consts",toplevel)
 
 ## structs
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 # These are marked as "disguised" and what this means is not documentated AFAICT.
 disguised = []
@@ -37,18 +27,11 @@ struct_skiplist = GI.all_struct_exprs!(exprs,ns;excludelist=struct_skiplist)
 GI.all_objects!(exprs,ns)
 GI.all_interfaces!(exprs,ns)
 
-open("../libs/gen/gio_structs","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/gio_structs",toplevel)
 
 ## struct methods
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 skiplist=[]
 
@@ -66,28 +49,15 @@ skiplist=[:add_action_entries,:get_info,:create_source,:receive_messages,:send_m
 :query_writable_namespaces,:writev_nonblocking]
 GI.all_interface_methods!(exprs,ns;skiplist=skiplist)
 
-open("../libs/gen/gio_methods","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    println(f)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/gio_methods",toplevel)
 
 ## functions
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 skiplist=[:bus_own_name_on_connection,:bus_own_name,:bus_watch_name_on_connection,:bus_watch_name,:dbus_annotation_info_lookup,:dbus_error_encode_gerror,:dbus_error_get_remote_error,:dbus_error_is_remote_error,:dbus_error_new_for_dbus_error,
 :dbus_error_strip_remote_error,:dbus_error_register_error_domain,:io_modules_load_all_in_directory_with_scope,:io_modules_scan_all_in_directory_with_scope]
 
 GI.all_functions!(exprs,ns,skiplist=skiplist)
 
-open("../libs/gen/gio_functions","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    println(f)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/gio_functions",toplevel)

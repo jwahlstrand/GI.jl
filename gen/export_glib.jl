@@ -1,9 +1,6 @@
 using GI
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 ns = GINamespace(:GLib, "2.0")
 ns2 = GINamespace(:GObject, "2.0")
@@ -26,18 +23,11 @@ push!(exprs, Expr(:toplevel,Expr(:module, true, :Constants, const_mod)))
 
 ## export constants, enums, and flags code
 mkpath("../libs/gen/")
-open("../libs/gen/glib_consts","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/glib_consts",toplevel)
 
 ## structs
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 # These are marked as "disguised" and what this means is not documentated AFAICT.
 disguised = [:AsyncQueue, :BookmarkFile, :Data, :Dir, :Hmac, :Iconv,
@@ -59,18 +49,11 @@ struct_skiplist=vcat(disguised, special, [:ByteArray,:Cond,:HashTableIter,:Hook,
 
 GI.all_struct_exprs!(exprs,ns;excludelist=struct_skiplist, import_as_opaque=import_as_opaque)
 
-open("../libs/gen/glib_structs","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/glib_structs",toplevel)
 
 ## struct methods
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 name_issues=[:end]
 
@@ -83,28 +66,15 @@ filter!(x->x≠:Variant,struct_skiplist)
 
 GI.all_struct_methods!(exprs,ns,skiplist=skiplist,struct_skiplist=struct_skiplist)
 
-open("../libs/gen/glib_methods","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    println(f)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/glib_methods",toplevel)
 
 ## functions
 
-body = Expr(:block)
-toplevel = Expr(:toplevel, body)
-exprs = body.args
-exports = Expr(:export)
+toplevel, exprs, exports = GI.output_exprs()
 
 # many of these are skipped because they involve callbacks
 skiplist=[:atomic_rc_box_release_full,:child_watch_add,:datalist_foreach,:dataset_foreach,:idle_add,:io_add_watch,:log_set_handler,:log_set_writer_func,:rc_box_release_full,:spawn_async,:spawn_async_with_fds,:spawn_async_with_pipes,:spawn_async_with_pipes_and_fds,:spawn_sync,:test_add_data_func,:test_add_data_func_full,:test_add_func,:test_queue_destroy,:timeout_add,:timeout_add_seconds,:unix_fd_add_full,:unix_signal_add, :byte_array_new,:byte_array_free_to_bytes,:datalist_get_data, :datalist_get_flags, :datalist_id_get_data, :datalist_set_flags, :datalist_unset_flags,:hook_destroy,:hook_destroy_link,:hook_free,:hook_insert_before, :hook_prepend,:hook_unref,:io_channel_error_from_errno,:poll, :sequence_get,:sequence_move,:sequence_move_range,:sequence_remove,:sequence_remove_range,:sequence_set,:sequence_swap,:source_remove_by_funcs_user_data,:test_run_suite, :assertion_message_error,:byte_array_free,:byte_array_new_take,:byte_array_steal,:byte_array_unref,:hash_table_add,:hash_table_contains,:hash_table_destroy,:hash_table_insert,:hash_table_lookup,:hash_table_lookup_extended,:hash_table_remove,:hash_table_remove_all,:hash_table_replace,:hash_table_size,:hash_table_steal,:hash_table_steal_all,:hash_table_steal_extended,:hash_table_unref,:uri_parse_params, :propagate_error,:set_error_literal,:pattern_match,:pattern_match_string,:log_structured_array,:log_writer_default,:log_writer_format_fields,:log_writer_journald,:log_writer_standard_streams,:parse_debug_string,:variant_parse_error_print_context]
 
 GI.all_functions!(exprs,ns,skiplist=skiplist)
 
-open("../libs/gen/glib_functions","w") do f
-    Base.println(f,"quote")
-    Base.show_unquoted(f, toplevel)
-    println(f)
-    Base.println(f,"end")
-end
+GI.write_to_file("../libs/gen/glib_functions",toplevel)
