@@ -369,6 +369,11 @@ function get_base_type(info::GITypeInfo)
             ns=get_namespace(interf_info)
             prefix=get_c_prefix(ns)
             return Symbol(prefix,string(get_name(interf_info)))
+        elseif typ===:GIInterfaceInfo
+            ns=get_namespace(interf_info)
+            prefix=get_c_prefix(ns)
+            #return Symbol(prefix,string(get_name(interf_info)))
+            return :GObject
         else
             name=get_name(interf_info)
             println("$name, Unhandled type: ", typ,get_type(interf_info))

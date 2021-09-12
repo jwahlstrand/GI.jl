@@ -20,9 +20,12 @@ using ..MutableTypes
 export Maybe
 
 export GList, glist_iter, _GSList, _GList, GError, GVariant, GType, GBoxed
-export GObject, GInitiallyUnowned
+export GObject, GInitiallyUnowned, GInterface
 export g_timeout_add, g_idle_add, @idle_add
 export @sigatom, cfunction_
+export gobject_ref, signal_connect
+
+export bytestring
 
 export gtype_abstracts, gtype_wrappers, GVariantDict, GBytes, GVariantType
 export GKeyFile, GDateTime
@@ -44,7 +47,6 @@ end
 const AbstractStringLike = Union{AbstractString, Symbol}
 bytestring(s) = String(s)
 bytestring(s::Symbol) = s
-bytestring(s::Ptr{UInt8}) = unsafe_string(s)
 function bytestring(s::Ptr{UInt8}, own::Bool=false)
     str=unsafe_string(s)
     if own
@@ -70,8 +72,8 @@ include("glist.jl")
 include("gvariant.jl")
 include("gtype.jl")
 
-eval(include("glib_consts"))
-eval(include("glib_structs"))
+eval(include("gen/glib_consts"))
+eval(include("gen/glib_structs"))
 
 include("gvalues.jl")
 include("gerror.jl")
@@ -92,12 +94,12 @@ end
 
 include("signals.jl")
 
-eval(include("glib_methods"))
-eval(include("glib_functions"))
+eval(include("gen/glib_methods"))
+eval(include("gen/glib_functions"))
 
-eval(include("gobject_structs"))
-eval(include("gobject_methods"))
-eval(include("gobject_functions"))
+eval(include("gen/gobject_structs"))
+eval(include("gen/gobject_methods"))
+eval(include("gen/gobject_functions"))
 
 function init_main_loop()
     main_loop = GLib.MainLoop_new(nothing, true)

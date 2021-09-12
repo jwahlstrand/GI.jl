@@ -3,7 +3,7 @@ using Test
 
 @testset "date" begin
 
-d=G.GLib.Date_new()
+d=G.GLib.Date()
 @test isa(d,GLib.GBoxed)
 
 d=G.GLib.Date_new_dmy(5,9,2021)

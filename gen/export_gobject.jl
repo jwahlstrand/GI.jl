@@ -19,22 +19,23 @@ struct_skiplist=vcat(disguised, special, [:CClosure,:Closure,:ClosureNotifyData,
 
 struct_skiplist = GI.all_struct_exprs!(exprs,ns;excludelist=struct_skiplist,import_as_opaque=import_as_opaque)
 
-open("../libs/gobject_structs","w") do f
+## objects and interfaces
+
+GI.all_objects!(exprs,ns;handled=[:Object])
+GI.all_interfaces!(exprs,ns)
+
+open("../libs/gen/gobject_structs","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     Base.println(f,"end")
 end
 
+## struct methods
+
 body = Expr(:block)
 toplevel = Expr(:toplevel, body)
 exprs = body.args
 exports = Expr(:export)
-
-## objects
-
-GI.all_objects!(exprs,ns;handled=[:Object])
-
-## struct methods
 
 structs=GI.get_structs(ns)
 
@@ -52,7 +53,7 @@ skiplist=[:interface_find_property,:interface_install_property,:interface_list_p
 
 GI.all_object_methods!(exprs,ns;skiplist=skiplist)
 
-open("../libs/gobject_methods","w") do f
+open("../libs/gen/gobject_methods","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     println(f)
@@ -90,6 +91,11 @@ end
 
 ## functions
 
+body = Expr(:block)
+toplevel = Expr(:toplevel, body)
+exprs = body.args
+exports = Expr(:export)
+
 skiplist=[:enum_complete_type_info,:enum_register_static,:flags_complete_type_info,
 :flags_register_static,:param_type_register_static,:signal_accumulator_first_wins,
 :signal_accumulator_true_handled,:signal_connect_closure,:signal_connect_closure_by_id,
@@ -98,11 +104,12 @@ skiplist=[:enum_complete_type_info,:enum_register_static,:flags_complete_type_in
 :source_set_closure,:source_set_dummy_callback,:type_add_interface_static,
 :type_check_class_is_a,:type_check_instance,:type_check_instance_is_a,:type_check_instance_is_fundamentally_a,
 :type_default_interface_unref,:type_free_instance,:type_name_from_class,
-:type_name_from_instance,:type_query,:type_register_fundamental,:type_register_static]
+:type_name_from_instance,:type_query,:type_register_fundamental,:type_register_static,
+:signal_set_va_marshaller]
 
 GI.all_functions!(exprs,ns,skiplist=skiplist)
 
-open("../libs/gobject_functions","w") do f
+open("../libs/gen/gobject_functions","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     println(f)

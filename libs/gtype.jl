@@ -320,6 +320,7 @@ function wrap_gobject(hnd::Ptr{GObject})
         @assert gtyp != 0
         typname = g_type_name(gtyp)
     end
+
     T = gtype_wrappers[typname]
     return T(hnd)
 end

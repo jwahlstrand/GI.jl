@@ -25,7 +25,8 @@ push!(const_mod.args,const_exports)
 push!(exprs, Expr(:toplevel,Expr(:module, true, :Constants, const_mod)))
 
 ## export constants, enums, and flags code
-open("../libs/glib_consts","w") do f
+mkpath("../libs/gen/")
+open("../libs/gen/glib_consts","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     Base.println(f,"end")
@@ -58,7 +59,7 @@ struct_skiplist=vcat(disguised, special, [:ByteArray,:Cond,:HashTableIter,:Hook,
 
 GI.all_struct_exprs!(exprs,ns;excludelist=struct_skiplist, import_as_opaque=import_as_opaque)
 
-open("../libs/glib_structs","w") do f
+open("../libs/gen/glib_structs","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     Base.println(f,"end")
@@ -82,7 +83,7 @@ filter!(x->x≠:Variant,struct_skiplist)
 
 GI.all_struct_methods!(exprs,ns,skiplist=skiplist,struct_skiplist=struct_skiplist)
 
-open("../libs/glib_methods","w") do f
+open("../libs/gen/glib_methods","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     println(f)
@@ -101,7 +102,7 @@ skiplist=[:atomic_rc_box_release_full,:child_watch_add,:datalist_foreach,:datase
 
 GI.all_functions!(exprs,ns,skiplist=skiplist)
 
-open("../libs/glib_functions","w") do f
+open("../libs/gen/glib_functions","w") do f
     Base.println(f,"quote")
     Base.show_unquoted(f, toplevel)
     println(f)

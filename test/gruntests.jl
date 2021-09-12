@@ -4,3 +4,4 @@ using Test, G
 include("keyfile.jl")
 include("date.jl")
 include("datetime.jl")
+include("gfile.jl")

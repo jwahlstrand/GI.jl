@@ -182,13 +182,13 @@ function all_struct_exprs!(exprs,ns;print_summary=true,excludelist=[],import_as_
     end
 
     if print_summary
-        println("Generated ",imported," structs out of ",length(s))
+        printstyled("Generated ",imported," structs out of ",length(s),"\n";color=:green)
     end
 
     struct_skiplist
 end
 
-function all_struct_methods!(exprs,ns;skiplist=[], struct_skiplist=[])
+function all_struct_methods!(exprs,ns;print_summary=true,skiplist=[], struct_skiplist=[])
     structs=GI.get_structs(ns)
 
     not_implemented=0
@@ -219,12 +219,16 @@ function all_struct_methods!(exprs,ns;skiplist=[], struct_skiplist=[])
         end
     end
 
-    println(created, " methods created")
-    println(skipped," methods skipped")
-    println(not_implemented," methods not implemented")
+    if print_summary
+        printstyled(created, " struct methods created\n";color=:green)
+        printstyled(skipped," struct methods skipped\n";color=:yellow)
+        if not_implemented>0
+            printstyled(not_implemented," struct methods not implemented\n";color=:red)
+        end
+    end
 end
 
-function all_functions!(exprs,ns;skiplist=[])
+function all_functions!(exprs,ns;print_summary=true,skiplist=[])
     j=0
     skipped=0
     not_implemented=0
@@ -274,9 +278,13 @@ function all_functions!(exprs,ns;skiplist=[])
         #push!(exports.args, name)
     end
 
-    println("created ",j," functions")
-    println("skipped ",skipped," out of ",j+skipped," functions")
-    println(not_implemented," functions not implemented")
+    if print_summary
+        printstyled("created ",j," functions\n";color=:green)
+        printstyled("skipped ",skipped," out of ",j+skipped," functions\n";color=:yellow)
+        if not_implemented>0
+            printstyled(not_implemented," functions not implemented\n";color=:red)
+        end
+    end
 end
 
 function obj_decl!(exprs,o,ns,handled)
@@ -318,14 +326,65 @@ function all_object_methods!(exprs,ns;skiplist=[],object_skiplist=[])
     objects=GI.get_all(ns,GI.GIObjectInfo)
     for o in objects
         name=GI.get_name(o)
-        println("Object: ",name)
+        #println("Object: ",name)
         methods=GI.get_methods(o)
         if in(name,object_skiplist)
             skipped+=length(methods)
             continue
         end
         for m in methods
-            println(GI.get_name(m))
+            #println(GI.get_name(m))
+            if in(GI.get_name(m),skiplist)
+                skipped+=1
+                continue
+            end
+            if GI.is_deprecated(m)
+                continue
+            end
+            try
+                fun=GI.create_method(m,GI.get_c_prefix(ns))
+                push!(exprs, fun)
+                created+=1
+            catch NotImplementedError
+                not_implemented+=1
+            #catch LoadError
+            #    println("error")
+            end
+        end
+    end
+end
+
+function all_interfaces!(exprs,ns;handled=[])
+    interfaces=GI.get_all(ns,GI.GIInterfaceInfo)
+
+    imported=length(interfaces)
+    for i in interfaces
+        name=GI.get_name(i)
+        type_init = GI.get_type_init(i)
+        #if type_init==:intern  # GParamSpec and children output this
+        #    continue
+        #end
+        append!(exprs,ginterface_decl(i,GI.get_c_prefix(ns)))
+    end
+
+    println("Imported ",imported," interfaces out of ",length(interfaces))
+end
+
+function all_interface_methods!(exprs,ns;skiplist=[],interface_skiplist=[])
+    not_implemented=0
+    skipped=0
+    created=0
+    interfaces=GI.get_all(ns,GI.GIInterfaceInfo)
+    for i in interfaces
+        name=GI.get_name(i)
+        #println("Object: ",name)
+        methods=GI.get_methods(i)
+        if in(name,interface_skiplist)
+            skipped+=length(methods)
+            continue
+        end
+        for m in methods
+            #println(GI.get_name(m))
             if in(GI.get_name(m),skiplist)
                 skipped+=1
                 continue
@@ -357,6 +416,8 @@ function gobject_decl(objectinfo,prefix)
     symname=Symbol(chop(string(type_init),tail=q[end]-q[1]+1))
     libs=GI.get_shlibs(GINamespace(GI.get_namespace(objectinfo)))
     lib=libs[findfirst(l->(nothing!=dlsym(dlopen(l),type_init)),libs)]
+    # The call to type_init really slows things down and doesn't seem to be necessary.
+    # Leaving it here because it probably is necessary.
     decl=quote
         #gtype = ccall((($(QuoteNode(type_init))), $lib),GType, ())
         abstract type $oname <: $pname end
@@ -378,10 +439,25 @@ function gobject_decl(objectinfo,prefix)
                     return gobject_ref(new(handle))
                 end
             end
-            #gtype_wrappers[$(QuoteNode(oname))] = $leafname
+            gtype_wrappers[$(QuoteNode(oname))] = $leafname
         end
         push!(exprs, decl)
     end
+    exprs
+end
+
+function ginterface_decl(interfaceinfo,prefix)
+    g_type = GI.get_g_type(interfaceinfo)
+    iname = Symbol(GLib.g_type_name(g_type))
+    decl=quote
+        struct $iname <: GInterface
+            handle::Ptr{GObject}
+            gc::Any
+            $iname(x::GObject) = new(unsafe_convert(Ptr{GObject}, x), x)
+        end
+    end
+    exprs=Expr[]
+    push!(exprs,decl)
     exprs
 end
 
@@ -501,8 +577,6 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
     lensymb=nothing
     if arrlen != -1
       args=get_args(arginfo)
-      #println("arg at arrlen is ",args[arrlen])
-      #println("arg at arrlen+1 is ",args[arrlen+1])
       lenname=get_name(args[arrlen+1])
       lensymb=Symbol(:m_,lenname)
     end
@@ -582,7 +656,9 @@ function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc)
 end
 
 function convert_from_c(argname::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {T}
-    # check if it's a GBoxed, if so check transfer
+    # check transfer
+    typ=GI.get_type(arginfo)
+
     if ti.jtype != :Any
         :(convert($(ti.jtype), $argname))
     elseif ti.gitype === Bool
@@ -628,9 +704,12 @@ function create_method(info::GIFunctionInfo,prefix)
         push!(cargs, Arg(:instance, typeinfo.ctype))
     end
     if flags & GIFunction.IS_CONSTRUCTOR != 0
-        #FIXME: mimic the new constructor style of Gtk.jl
-        name = Symbol("$(get_name(get_container(info)))_$name")
-        #println("CONSTRUCTOR: ",name)
+        #FIXME: do this with other constructors too (need to check that arg lists are different)
+        if name===:new
+            name = Symbol("$(get_name(get_container(info)))")
+        else
+            name = Symbol("$(get_name(get_container(info)))_$name")
+        end
     end
     rettypeinfo=get_return_type(info)
     rettype = extract_type(rettypeinfo)
