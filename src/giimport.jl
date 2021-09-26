@@ -39,47 +39,9 @@ function enum_decls(ns)
 end
 enum_name(enum) = Symbol(string(get_namespace(enum),get_name(enum)))
 
-function all_const_exprs!(const_mod, const_exports, ns;print_summary=true)
-    c = get_consts(ns)
-
-    for (name,val) in c
-        push!(const_mod.args, const_expr("$name",val))
-    end
-    if print_summary
-        printstyled("Generated ",length(c)," constants\n";color=:green)
-    end
-
-    es=GI.get_all(ns,GI.GIEnumGIInfo)
-    for e in es
-        name = Symbol(GI.get_name(e))
-        push!(const_mod.args, GI.enum_decl(e))
-        push!(const_exports.args, name)
-    end
-
-    if print_summary
-        printstyled("Generated ",length(es)," enums\n";color=:green)
-    end
-
-    es=GI.get_all(ns,GI.GIFlagsInfo)
-    for e in es
-        name = Symbol(GI.get_name(e))
-        push!(const_mod.args, GI.enum_decl(e))
-        push!(const_exports.args, name)
-    end
-
-    if print_summary
-        printstyled("Generated ",length(es)," flags\n";color=:green)
-    end
-end
-
-function all_const_exprs(ns;print_summary=true)
-    const_mod = Expr(:block)
-    const_exports = Expr(:export)
-
-    all_const_exprs!(const_mod,const_exports,ns;print_summary=print_summary)
-    push!(const_mod.args,const_exports)
-
-    const_mod
+function full_name(info,prefix)
+    name=get_name(info)
+    Symbol(prefix,name)
 end
 
 function struct_decl(structinfo,prefix;force_opaque=false)
@@ -91,13 +53,16 @@ function struct_decl(structinfo,prefix;force_opaque=false)
     decl = isboxed ? :($gstructname <: GBoxed) : gstructname
     fin = Expr[]
     if isboxed
-        type_init = get_type_init(structinfo)
+        type_init = String(get_type_init(structinfo))
         #println(gstructname, " type_init is ",get_type_init(structinfo)," ",length(fields)," fields")
         libs=get_shlibs(GINamespace(get_namespace(structinfo)))
         lib=libs[findfirst(l->(nothing!=dlsym(dlopen(l),type_init)),libs)]
+        slib=symbol_from_lib(lib)
         fin = quote
+            GLib.g_type(::Type{T}) where {T <: $gstructname} =
+                      ccall(($type_init, $slib), GType, ())
             function $gstructname(ref::Ptr{$gstructname}, own::Bool = false)
-                gtype = ccall((($(QuoteNode(type_init))), $lib),GType, ())
+                gtype = ccall((($(QuoteNode(type_init))), $slib),GType, ())
                 own || ccall((:g_boxed_copy, libgobject), Nothing, (GType, Ptr{$gstructname},), gtype, ref)
                 x = new(ref)
                 finalizer(x::$gstructname->begin
@@ -106,185 +71,28 @@ function struct_decl(structinfo,prefix;force_opaque=false)
                     end, x)
             end
         end
-    else
-        throw(NotImplementedError)
     end
     if length(fields)>0 && !force_opaque
-        throw(NotImplementedError)
         fieldsexpr=Expr[]
         for field in fields
             field1=get_name(field)
             type1=extract_type(field).ctype
             push!(fieldsexpr,:($field1::$type1))
         end
-        datastructname=Symbol("_",gstructname)
-        datastruc=quote
-            mutable struct $datastructname
+        struc=quote
+            struct $decl
                 $(fieldsexpr...)
             end
         end
-    end
-    struc=quote
-        mutable struct $decl
-            handle::Ptr{$gstructname}
-            $fin
-        end
-    end
-    if length(fields)>0 && !force_opaque
-        throw(NotImplementedError)
-        quote
-            $(datastruc)
-            $(struc)
-        end
     else
-        struc
-    end
-end
-
-function all_struct_exprs!(exprs,ns;print_summary=true,excludelist=[],import_as_opaque=[])
-    struct_skiplist=excludelist
-
-    s=GI.get_all(ns,GI.GIStructInfo)
-    ss=filter(p->∉(GI.get_name(p),struct_skiplist),s)
-    imported=length(ss)
-    for ssi in ss
-        name=GI.get_name(ssi)
-        fields=GI.get_fields(ssi)
-        if GI.is_gtype_struct(ssi) # these are "class structures" and according to the documentation we probably don't need them in bindings
-            push!(struct_skiplist,name)
-            if print_summary
-                printstyled(name," is a gtype struct, skipping\n";color=:yellow)
-            end
-            imported-=1
-            continue
-        end
-        if length(fields)>0
-            imported-=1
-            if !in(name,import_as_opaque)
-                if print_summary
-                    printstyled(name," has fields, skipping\n";color=:yellow) # need to define two structs, one with fields and one without (see how GList is handled in Gtk.jl)
-                end
-                push!(struct_skiplist,name)
-                continue
-            end
-        end
-        name = Symbol("$name")
-        try
-            push!(exprs, GI.struct_decl(ssi,GI.get_c_prefix(ns);force_opaque=in(name,import_as_opaque)))
-        catch NotImplementedError
-            if print_summary
-                printstyled(name," not implemented\n";color=:red)
-            end
-            push!(struct_skiplist,name)
-            imported-=1
-        end
-        #push!(exports.args, name)
-    end
-
-    if print_summary
-        printstyled("Generated ",imported," structs out of ",length(s),"\n";color=:green)
-    end
-
-    struct_skiplist
-end
-
-function all_struct_methods!(exprs,ns;print_summary=true,skiplist=[], struct_skiplist=[])
-    structs=GI.get_structs(ns)
-
-    not_implemented=0
-    skipped=0
-    created=0
-    for s in structs
-        name=GI.get_name(s)
-        methods=GI.get_methods(s)
-        if in(name,struct_skiplist)
-            skipped+=length(methods)
-            continue
-        end
-        for m in methods
-            if in(GI.get_name(m),skiplist)
-                skipped+=1
-                continue
-            end
-            if GI.is_deprecated(m)
-                continue
-            end
-            try
-                fun=GI.create_method(m,GI.get_c_prefix(ns))
-                push!(exprs, fun)
-                created+=1
-            catch NotImplementedError
-                not_implemented+=1
+        struc=quote
+            mutable struct $decl
+                handle::Ptr{$gstructname}
+                $fin
             end
         end
     end
-
-    if print_summary
-        printstyled(created, " struct methods created\n";color=:green)
-        printstyled(skipped," struct methods skipped\n";color=:yellow)
-        if not_implemented>0
-            printstyled(not_implemented," struct methods not implemented\n";color=:red)
-        end
-    end
-end
-
-function all_functions!(exprs,ns;print_summary=true,skiplist=[])
-    j=0
-    skipped=0
-    not_implemented=0
-    for i in GI.get_all(ns,GI.GIFunctionInfo)
-        if in(GI.get_name(i),skiplist) || occursin("cclosure",string(GI.get_name(i)))
-            skipped+=1
-            continue
-        end
-        unsupported = false # whatever we happen to unsupport
-        for arg in GI.get_args(i)
-            try
-                bt = GI.get_base_type(GI.get_type(arg))
-                if isa(bt,Ptr{GI.GIArrayType}) || isa(bt,Ptr{GI.GIArrayType{3}})
-                    unsupported = true; break
-                end
-                if (isa(GI.get_base_type(GI.get_type(arg)), Nothing))
-                    unsupported = true; break
-                end
-            catch NotImplementedError
-                continue
-            end
-        end
-        try
-            bt = GI.get_base_type(GI.get_return_type(i))
-            if isa(bt,Symbol)
-                unsupported = true;
-            end
-            if unsupported
-                #println("Skipped: ",GI.get_name(i))
-                skipped+=1
-                continue
-            end
-        catch NotImplementedError
-            continue
-        end
-        name = GI.get_name(i)
-        name = Symbol("$name")
-        try
-            fun=GI.create_method(i,GI.get_c_prefix(ns))
-            push!(exprs, fun)
-            j+=1
-        catch NotImplementedError
-            #println("Not implemented: ",name)
-            not_implemented+=1
-            continue
-        end
-        #push!(exports.args, name)
-    end
-
-    if print_summary
-        printstyled("created ",j," functions\n";color=:green)
-        printstyled("skipped ",skipped," out of ",j+skipped," functions\n";color=:yellow)
-        if not_implemented>0
-            printstyled(not_implemented," functions not implemented\n";color=:red)
-        end
-    end
+    struc
 end
 
 function obj_decl!(exprs,o,ns,handled)
@@ -297,112 +105,6 @@ function obj_decl!(exprs,o,ns,handled)
     end
     append!(exprs,GI.gobject_decl(o,GI.get_c_prefix(ns)))
     push!(handled,GI.get_name(o))
-end
-
-function all_objects!(exprs,ns;handled=[])
-    objects=GI.get_all(ns,GI.GIObjectInfo)
-
-    imported=length(objects)
-    for o in objects
-        name=GI.get_name(o)
-        if name==:Object
-            imported -= 1
-            continue
-        end
-        type_init = GI.get_type_init(o)
-        if type_init==:intern  # GParamSpec and children output this
-            continue
-        end
-        obj_decl!(exprs,o,ns,handled)
-    end
-
-    println("Imported ",imported," objects out of ",length(objects))
-end
-
-function all_object_methods!(exprs,ns;skiplist=[],object_skiplist=[])
-    not_implemented=0
-    skipped=0
-    created=0
-    objects=GI.get_all(ns,GI.GIObjectInfo)
-    for o in objects
-        name=GI.get_name(o)
-        #println("Object: ",name)
-        methods=GI.get_methods(o)
-        if in(name,object_skiplist)
-            skipped+=length(methods)
-            continue
-        end
-        for m in methods
-            #println(GI.get_name(m))
-            if in(GI.get_name(m),skiplist)
-                skipped+=1
-                continue
-            end
-            if GI.is_deprecated(m)
-                continue
-            end
-            try
-                fun=GI.create_method(m,GI.get_c_prefix(ns))
-                push!(exprs, fun)
-                created+=1
-            catch NotImplementedError
-                not_implemented+=1
-            #catch LoadError
-            #    println("error")
-            end
-        end
-    end
-end
-
-function all_interfaces!(exprs,ns;handled=[])
-    interfaces=GI.get_all(ns,GI.GIInterfaceInfo)
-
-    imported=length(interfaces)
-    for i in interfaces
-        name=GI.get_name(i)
-        type_init = GI.get_type_init(i)
-        #if type_init==:intern  # GParamSpec and children output this
-        #    continue
-        #end
-        append!(exprs,ginterface_decl(i,GI.get_c_prefix(ns)))
-    end
-
-    println("Imported ",imported," interfaces out of ",length(interfaces))
-end
-
-function all_interface_methods!(exprs,ns;skiplist=[],interface_skiplist=[])
-    not_implemented=0
-    skipped=0
-    created=0
-    interfaces=GI.get_all(ns,GI.GIInterfaceInfo)
-    for i in interfaces
-        name=GI.get_name(i)
-        #println("Object: ",name)
-        methods=GI.get_methods(i)
-        if in(name,interface_skiplist)
-            skipped+=length(methods)
-            continue
-        end
-        for m in methods
-            #println(GI.get_name(m))
-            if in(GI.get_name(m),skiplist)
-                skipped+=1
-                continue
-            end
-            if GI.is_deprecated(m)
-                continue
-            end
-            try
-                fun=GI.create_method(m,GI.get_c_prefix(ns))
-                push!(exprs, fun)
-                created+=1
-            catch NotImplementedError
-                not_implemented+=1
-            #catch LoadError
-            #    println("error")
-            end
-        end
-    end
 end
 
 function gobject_decl(objectinfo,prefix)
@@ -675,12 +377,30 @@ end
 types(args::Array{Arg}) = [a.typ for a in args]
 names(args::Array{Arg}) = [a.name for a in args]
 jparams(args::Array{Arg}) = [a.typ != :Any ? :($(a.name)::$(a.typ)) : a.name for a in args]
+
+# Map library names onto exports of *_jll
+# TODO: make this more elegant
+function symbol_from_lib(libname)
+    if occursin("libglib",libname)
+        return :libglib
+    elseif occursin("libgobject",libname)
+        return :libgobject
+    elseif occursin("libgio",libname)
+        return :libgio
+    elseif occursin("libcairo-gobject",libname)
+        return :libcairo_gobject
+    elseif occursin("libatk",libname)
+        return :libatk
+    end
+end
+
 #there's probably a better way
 function make_ccall(libs, id, rtype, args)
     argtypes = Expr(:tuple, types(args)...)
     # look up symbol in our possible libraries
     lib=libs[findfirst(l->(nothing!=dlsym(dlopen(l),id)),libs)]
-    c_call = :(ccall(($id, $lib), $rtype, $argtypes))
+    slib=symbol_from_lib(lib)
+    c_call = :(ccall(($id, $slib), $rtype, $argtypes))
     append!(c_call.args, names(args))
     c_call
 end

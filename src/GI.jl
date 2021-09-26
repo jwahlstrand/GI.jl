@@ -22,5 +22,5 @@ module GI
     include(joinpath("..","deps","ext.jl"))
     include("girepo.jl")
     include("giimport.jl")
-    include("output.jl")
+    include("giexport.jl")
 end

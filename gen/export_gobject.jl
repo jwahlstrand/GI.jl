@@ -12,14 +12,16 @@ disguised = [:ParamSpecPool]
 # These are handled specially by Gtk.GLib and are left alone here.
 special = [:Object,:Value]
 import_as_opaque = [:ObjectClass]
-struct_skiplist=vcat(disguised, special, [:CClosure,:Closure,:ClosureNotifyData,:InterfaceInfo,:ObjectConstructParam,:ParamSpecTypeInfo,:TypeInfo,:TypeValueTable,:WeakRef])
+struct_skiplist=vcat(disguised, special, [:CClosure,:Closure,:ClosureNotifyData,:EnumClass,:FlagsClass,:InterfaceInfo,:ObjectConstructParam,:ParamSpecTypeInfo,:TypeClass,:TypeInfo,:TypeInstance,:TypeInterface,:TypeValueTable,:WeakRef])
 
-struct_skiplist = GI.all_struct_exprs!(exprs,ns;excludelist=struct_skiplist,import_as_opaque=import_as_opaque)
+struct_skiplist = GI.all_struct_exprs!(exprs,exports,ns;excludelist=struct_skiplist,import_as_opaque=import_as_opaque)
 
 ## objects and interfaces
 
-GI.all_objects!(exprs,ns;handled=[:Object])
-GI.all_interfaces!(exprs,ns)
+GI.all_objects!(exprs,exports,ns;handled=[:Object])
+GI.all_interfaces!(exprs,exports,ns)
+
+push!(exprs,exports)
 
 GI.write_to_file("../libs/gen/gobject_structs",toplevel)
 
@@ -29,7 +31,7 @@ toplevel, exprs, exports = GI.output_exprs()
 
 structs=GI.get_structs(ns)
 
-skiplist=[:init_from_instance]
+skiplist=[:init_from_instance,:get_private]
 
 filter!(x->x≠:Variant,struct_skiplist)
 filter!(x->x≠:Value,struct_skiplist)
@@ -49,12 +51,12 @@ GI.write_to_file("../libs/gen/gobject_methods",toplevel)
 
 for o in GI.get_all(ns,GI.GIObjectInfo)
     name=GI.get_name(o)
+    println("object: $name")
     properties=GI.get_properties(o)
     for p in properties
-        if in(GI.get_name(o),skiplist)
-            global skipped+=1
-            continue
-        end
+        flags=GI.get_flags(p)
+        tran=GI.get_ownership_transfer(p)
+        println("property: ",GI.get_name(p)," ",tran)
         if GI.is_deprecated(p)
             continue
         end

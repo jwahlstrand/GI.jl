@@ -1,6 +1,9 @@
 using G.GLib
 using Test
 
+# GKeyFile is an opaque struct that is a GBoxed and has methods that take and
+# return arrays.
+
 @testset "keyfile" begin
 
 for i=1:1

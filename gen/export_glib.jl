@@ -47,7 +47,9 @@ struct_skiplist=vcat(disguised, special, [:ByteArray,:Cond,:HashTableIter,:Hook,
     :RecMutex,:Scanner,:Source,:SourceCallbackFuncs,:SourceFuncs,
     :TestLogBuffer,:TestLogMsg,:Thread,:ThreadPool,:Tree,:UriParamsIter])
 
-GI.all_struct_exprs!(exprs,ns;excludelist=struct_skiplist, import_as_opaque=import_as_opaque)
+GI.all_struct_exprs!(exprs,exports,ns;excludelist=struct_skiplist, import_as_opaque=import_as_opaque)
+
+push!(exprs,exports)
 
 GI.write_to_file("../libs/gen/glib_structs",toplevel)
 

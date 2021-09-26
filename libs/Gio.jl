@@ -6,6 +6,8 @@ end
 
 using ..GLib
 
+using Glib_jll
+
 import Base: convert
 
 export GInputStream, GOutputStream, GCancellable, GMenuModel, GMenu

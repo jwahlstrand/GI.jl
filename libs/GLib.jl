@@ -28,7 +28,6 @@ export gobject_ref, signal_connect
 export bytestring
 
 export gtype_abstracts, gtype_wrappers, GVariantDict, GBytes, GVariantType
-export GKeyFile, GDateTime
 
 export GValue,GParamSpec, GTypeModule
 

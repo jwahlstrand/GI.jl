@@ -38,6 +38,8 @@ function setindex!(dest::GV, src::GV)
     src
 end
 
+convert(::Type{GValue}, p::Ptr{GValue}) = unsafe_load(p)
+
 setindex!(::Type{Nothing}, v::GV) = v
 setindex!(v::GLib.GV, x) = setindex!(v, x, typeof(x))
 setindex!(gv::GV, x, i::Int) = setindex!(mutable(gv, i), x)
@@ -45,6 +47,7 @@ setindex!(gv::GV, x, i::Int) = setindex!(mutable(gv, i), x)
 getindex(gv::GV, i::Int, ::Type{T}) where {T} = getindex(mutable(gv, i), T)
 getindex(gv::GV, i::Int) = getindex(mutable(gv, i))
 getindex(v::GV, i::Int, ::Type{Nothing}) = nothing
+
 
 let handled = Set()
 global make_gvalue, getindex
@@ -54,7 +57,8 @@ function make_gvalue(pass_x, as_ctype, to_gtype, with_id, cm::Module, allow_reve
         with_id = with_id::Tuple{Symbol, Any}
         with_id = :(ccall($(Expr(:tuple, Meta.quot(Symbol(string(with_id[1], "_get_type"))), with_id[2])), GType, ()))
     end
-    if pass_x !== Union{} && !(pass_x in handled)
+    # with_id is now the GType
+    if pass_x !== Union{} && !(pass_x in handled)  # define GValue setters
         Core.eval(cm, quote
             function Base.setindex!(v::GLib.GV, ::Type{T}) where T <: $pass_x
                 ccall((:g_value_init, GLib.libgobject), Nothing, (Ptr{GLib.GValue}, Csize_t), v, $with_id)
@@ -79,7 +83,7 @@ function make_gvalue(pass_x, as_ctype, to_gtype, with_id, cm::Module, allow_reve
     if to_gtype == :static_string
         to_gtype = :string
     end
-    if pass_x !== Union{} && !(pass_x in handled)
+    if pass_x !== Union{} && !(pass_x in handled)  # define default GValue getter
         push!(handled, pass_x)
         Core.eval(cm, quote
             function Base.getindex(v::GLib.GV, ::Type{T}) where T <: $pass_x
