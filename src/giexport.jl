@@ -276,7 +276,7 @@ function all_functions!(exprs,ns;print_summary=true,skiplist=[])
             push!(exprs, fun)
             j+=1
         catch NotImplementedError
-            #println("Not implemented: ",name)
+            println("Not implemented: ",name)
             not_implemented+=1
             continue
         end

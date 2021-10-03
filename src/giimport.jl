@@ -293,7 +293,8 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
     elseif get_caller_owns(arginfo)==GITransfer.CONTAINER && lensymb != nothing
         :(ret2=copy(unsafe_wrap(Vector{$elmctype}, $name,$lensymb[]));GLib.g_free($name);ret2)
     else
-        throw(NotImplementedError)
+        #throw(NotImplementedError)
+        return nothing
     end
 end
 
@@ -325,9 +326,30 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{
     expr = :( GLib.GList($name) )
 end
 
-function extract_type(typeinfo::GITypeInfo,info::GICallbackInfo)
+function extract_type(typeinfo::GITypeInfo,basetype::Type{Function})
     throw(NotImplementedError)
-    TypeDesc(info,:Function, :(Ptr{Nothing}))
+    TypeDesc{Type{Function}}(Function,:Function, :(Ptr{Nothing}))
+end
+
+function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:Type{Function}}
+    typeinfo=get_type(info)
+    callbackinfo=get_interface(typeinfo)
+    println(get_name(callbackinfo))
+    # get return type
+    rettyp=get_return_type(callbackinfo)
+    retctyp=extract_type(rettyp).ctype
+    # get arg types
+    argctypes_arr=[]
+    for arg in get_args(callbackinfo)
+        argtyp=get_type(arg)
+        argctyp=extract_type(argtyp).ctype
+        push!(argctypes_arr,argctyp)
+    end
+    argctypes = Expr(:tuple, argctypes_arr...)
+    special=QuoteNode(Expr(:$, :name))
+    expr = quote
+        @cfunction($special, $retctyp, $argctypes)
+    end
 end
 
 const ObjectLike = Union{GIObjectInfo, GIInterfaceInfo}
@@ -362,6 +384,7 @@ function convert_from_c(argname::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) wher
     typ=GI.get_type(arginfo)
 
     if ti.jtype != :Any
+        println(ti.jtype)
         :(convert($(ti.jtype), $argname))
     elseif ti.gitype === Bool
         :(convert(Bool, $argname))
@@ -392,6 +415,7 @@ function symbol_from_lib(libname)
     elseif occursin("libatk",libname)
         return :libatk
     end
+    libname
 end
 
 #there's probably a better way

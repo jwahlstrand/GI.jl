@@ -361,10 +361,7 @@ function get_base_type(info::GITypeInfo)
         elseif typ===:GIFlagsInfo
             return Int32 # TODO: get the storage type using GI
         elseif typ===:GICallbackInfo
-            ns=get_namespace(interf_info)
-            prefix=get_c_prefix(ns)
-            throw(NotImplementedError)
-            return Symbol(prefix,string(get_name(interf_info)))
+            return Function
         elseif typ===:GIObjectInfo
             ns=get_namespace(interf_info)
             prefix=get_c_prefix(ns)

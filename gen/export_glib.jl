@@ -38,12 +38,12 @@ disguised = [:AsyncQueue, :BookmarkFile, :Data, :Dir, :Hmac, :Iconv,
 # These are handled specially by Gtk.GLib and are left alone here.
 special = [:List,:SList,:Error,:Variant] # add Hashtable?
 # Treat these as opaque even though there are fields
-import_as_opaque = [:Date]
+import_as_opaque = [:Date,:Source]
 
 # These include callbacks or are otherwise currently problematic
 struct_skiplist=vcat(disguised, special, [:ByteArray,:Cond,:HashTableIter,:Hook,
     :HookList,:IOChannel,:IOFuncs,:MarkupParseContext,
-    :MarkupParser,:MemVTable,:Node,:Once,:OptionGroup,:Private,:Queue,:RWLock,
+    :MarkupParser,:MemVTable,:Node,:Once,:OptionGroup,:PollFD,:Private,:Queue,:RWLock,
     :RecMutex,:Scanner,:Source,:SourceCallbackFuncs,:SourceFuncs,
     :TestLogBuffer,:TestLogMsg,:Thread,:ThreadPool,:Tree,:UriParamsIter])
 
@@ -75,7 +75,7 @@ GI.write_to_file("../libs/gen/glib_methods",toplevel)
 toplevel, exprs, exports = GI.output_exprs()
 
 # many of these are skipped because they involve callbacks
-skiplist=[:atomic_rc_box_release_full,:child_watch_add,:datalist_foreach,:dataset_foreach,:idle_add,:io_add_watch,:log_set_handler,:log_set_writer_func,:rc_box_release_full,:spawn_async,:spawn_async_with_fds,:spawn_async_with_pipes,:spawn_async_with_pipes_and_fds,:spawn_sync,:test_add_data_func,:test_add_data_func_full,:test_add_func,:test_queue_destroy,:timeout_add,:timeout_add_seconds,:unix_fd_add_full,:unix_signal_add, :byte_array_new,:byte_array_free_to_bytes,:datalist_get_data, :datalist_get_flags, :datalist_id_get_data, :datalist_set_flags, :datalist_unset_flags,:hook_destroy,:hook_destroy_link,:hook_free,:hook_insert_before, :hook_prepend,:hook_unref,:io_channel_error_from_errno,:poll, :sequence_get,:sequence_move,:sequence_move_range,:sequence_remove,:sequence_remove_range,:sequence_set,:sequence_swap,:source_remove_by_funcs_user_data,:test_run_suite, :assertion_message_error,:byte_array_free,:byte_array_new_take,:byte_array_steal,:byte_array_unref,:hash_table_add,:hash_table_contains,:hash_table_destroy,:hash_table_insert,:hash_table_lookup,:hash_table_lookup_extended,:hash_table_remove,:hash_table_remove_all,:hash_table_replace,:hash_table_size,:hash_table_steal,:hash_table_steal_all,:hash_table_steal_extended,:hash_table_unref,:uri_parse_params, :propagate_error,:set_error_literal,:pattern_match,:pattern_match_string,:log_structured_array,:log_writer_default,:log_writer_format_fields,:log_writer_journald,:log_writer_standard_streams,:parse_debug_string,:variant_parse_error_print_context]
+skiplist=[:atomic_rc_box_release_full,:child_watch_add,:datalist_foreach,:dataset_foreach,:file_get_contents,:io_add_watch,:log_set_handler,:log_set_writer_func,:rc_box_release_full,:spawn_async,:spawn_async_with_fds,:spawn_async_with_pipes,:spawn_async_with_pipes_and_fds,:spawn_sync,:test_add_data_func,:test_add_data_func_full,:test_add_func,:test_queue_destroy,:unix_fd_add_full,:unix_signal_add, :byte_array_new,:byte_array_free_to_bytes,:datalist_get_data, :datalist_get_flags, :datalist_id_get_data, :datalist_set_flags, :datalist_unset_flags,:hook_destroy,:hook_destroy_link,:hook_free,:hook_insert_before, :hook_prepend,:hook_unref,:io_channel_error_from_errno,:poll, :sequence_get,:sequence_move,:sequence_move_range,:sequence_remove,:sequence_remove_range,:sequence_set,:sequence_swap,:shell_parse_argv,:source_remove_by_funcs_user_data,:test_run_suite, :assertion_message_error,:byte_array_free,:byte_array_new_take,:byte_array_steal,:byte_array_unref,:hash_table_add,:hash_table_contains,:hash_table_destroy,:hash_table_insert,:hash_table_lookup,:hash_table_lookup_extended,:hash_table_remove,:hash_table_remove_all,:hash_table_replace,:hash_table_size,:hash_table_steal,:hash_table_steal_all,:hash_table_steal_extended,:hash_table_unref,:uri_parse_params, :propagate_error,:set_error_literal,:pattern_match,:pattern_match_string,:log_structured_array,:log_writer_default,:log_writer_format_fields,:log_writer_journald,:log_writer_standard_streams,:parse_debug_string,:variant_parse_error_print_context]
 
 GI.all_functions!(exprs,ns,skiplist=skiplist)
 
