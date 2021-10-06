@@ -70,6 +70,8 @@ end
 include("glist.jl")
 include("gvariant.jl")
 include("gtype.jl")
+include("hashtable.jl")
+include("arrays.jl")
 
 eval(include("gen/glib_consts"))
 eval(include("gen/glib_structs"))

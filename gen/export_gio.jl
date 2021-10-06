@@ -41,9 +41,9 @@ GI.all_struct_methods!(exprs,ns,skiplist=skiplist,struct_skiplist=struct_skiplis
 
 ## object methods
 
-skiplist=[:export,:add_main_option_entries,:add_option_group,:make_pollfd,:source_new,:register_object,:get_info,:get_method_info,:get_property_info,:return_gerror,
+skiplist=[:export,:add_main_option_entries,:add_option_group,:make_pollfd,:source_new,:register_object,:get_info,:get_method_info,:get_property_info,
 :new_for_bus_sync,:new_sync,:get_interface_info,:set_interface_info,:writev,:writev_all,:flatten_tree,:changed_tree,:receive_messages,:send_message,:send_message_with_timeout,:send_messages,:get_context,
-:return_error,:get_channel_binding_data,:lookup_certificates_issued_by,:get_default]
+:get_channel_binding_data,:lookup_certificates_issued_by,:get_default,:query,:load,:unload]
 
 # skips are to avoid method name collisions
 GI.all_object_methods!(exprs,ns;skiplist=skiplist,object_skiplist=[:AppInfoMonitor,:DBusConnection,:DBusMenuModel,:UnixMountMonitor])

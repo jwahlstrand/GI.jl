@@ -17,6 +17,7 @@ using Libdl
 
 export GInterface, GType, GObject, GBoxed, @Gtype, @Giface
 export GEnum, GError, GValue, gvalue, make_gvalue, @make_gvalue, g_type
+export GHashTable, GByteArray, GArray, GPtrArray
 export GList, glist_iter, _GSList, _GList, gobject_ref, gobject_move_ref
 export set_gtk_property!, get_gtk_property
 export GConnectFlags
@@ -46,6 +47,8 @@ using .MutableTypes
 include("../../libs/glist.jl")
 include("../../libs/gvariant.jl")
 include("../../libs/gtype.jl")
+include("../../libs/hashtable.jl")
+include("../../libs/arrays.jl")
 include("../../libs/gvalues.jl")
 include("../../libs/gerror.jl")
 

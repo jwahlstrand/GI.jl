@@ -41,7 +41,8 @@ GI.all_struct_methods!(exprs,ns,skiplist=skiplist,struct_skiplist=struct_skiplis
 ## object methods
 
 skiplist=[:interface_find_property,:interface_install_property,:interface_list_properties,
-:bind_property_full,:watch_closure,:add_interface,:register_enum,:register_flags,:register_type]
+:bind_property_full,:watch_closure,:add_interface,:register_enum,:register_flags,:register_type,
+:getv]
 
 GI.all_object_methods!(exprs,ns;skiplist=skiplist)
 
@@ -51,12 +52,10 @@ GI.write_to_file("../libs/gen/gobject_methods",toplevel)
 
 for o in GI.get_all(ns,GI.GIObjectInfo)
     name=GI.get_name(o)
-    println("object: $name")
     properties=GI.get_properties(o)
     for p in properties
         flags=GI.get_flags(p)
         tran=GI.get_ownership_transfer(p)
-        println("property: ",GI.get_name(p)," ",tran)
         if GI.is_deprecated(p)
             continue
         end

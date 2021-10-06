@@ -134,11 +134,15 @@ function gobject_decl(objectinfo,prefix)
         decl=quote
             mutable struct $leafname <: $oname
                 handle::Ptr{GObject}
-                function $leafname(handle::Ptr{GObject})
+                function $leafname(handle::Ptr{GObject},owns=true)
                     if handle == C_NULL
                         error($("Cannot construct $leafname with a NULL pointer"))
                     end
-                    return gobject_ref(new(handle))
+                    if !owns
+                        return new(handle)
+                    else
+                        return gobject_ref(new(handle))
+                    end
                 end
             end
             gtype_wrappers[$(QuoteNode(oname))] = $leafname
@@ -287,7 +291,7 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
         if elmctype == :(Ptr{UInt8})
             :(_len=length_zt($name);ret2=bytestring.(unsafe_wrap(Vector{$elmctype}, $name,_len));GLib.g_strfreev($name);ret2)
         else
-            throw(NotImplementedError)
+            return nothing
             #:(_len=length_zt($name);ret2=copy(unsafe_wrap(Vector{$elmctype}, $name,i-1));GLib.g_free($name);ret2)
         end
     elseif get_caller_owns(arginfo)==GITransfer.CONTAINER && lensymb != nothing
@@ -327,7 +331,7 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{
 end
 
 function extract_type(typeinfo::GITypeInfo,basetype::Type{Function})
-    throw(NotImplementedError)
+    #throw(NotImplementedError)
     TypeDesc{Type{Function}}(Function,:Function, :(Ptr{Nothing}))
 end
 
@@ -362,6 +366,26 @@ end
 # not sure the best way to implement this given no multiple inheritance
 typename(info::GIInterfaceInfo) = :GObject #FIXME
 
+function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GObject}
+    interf_info = get_interface(typeinfo)
+    ns=get_namespace(interf_info)
+    prefix=get_c_prefix(ns)
+    name = Symbol(prefix,string(get_name(interf_info)))
+    TypeDesc{Type{GObject}}(GObject, name,:(Ptr{GObject}))
+end
+
+function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GObject}}
+    owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
+    if owns
+        # This conversion does all the gc prevention stuff
+        :(convert($(typeinfo.jtype), $name))
+    else
+        # We can just stuff the pointer in the object and dump it whenever
+        leaftype=Symbol(typeinfo.jtype,:Leaf)
+        :($leaftype($name))
+    end
+end
+
 function extract_type(typeinfo::TypeInfo, info::ObjectLike)
     if is_pointer(typeinfo)
         if typename(info)===:GParam  # these are not really GObjects
@@ -379,15 +403,15 @@ function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc)
     nothing
 end
 
-function convert_from_c(argname::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {T}
+function convert_from_c(name::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {T}
     # check transfer
     typ=GI.get_type(arginfo)
 
     if ti.jtype != :Any
-        println(ti.jtype)
-        :(convert($(ti.jtype), $argname))
+        println("default convert from: ",ti.jtype)
+        :(convert($(ti.jtype), $name))
     elseif ti.gitype === Bool
-        :(convert(Bool, $argname))
+        :(convert(Bool, $name))
     else
         nothing
     end

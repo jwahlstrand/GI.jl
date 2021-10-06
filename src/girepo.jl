@@ -341,6 +341,7 @@ const GI_ARRAY_TYPE_BYTE_ARRAY =3
 const GICArray = GIArrayType{GI_ARRAY_TYPE_C}
 
 """Get the Julia type corresponding to a GITypeInfo"""
+# Awkward: returns a Symbol for some things and a Type for others
 get_base_type(info::GIConstantInfo) = get_base_type(get_type(info))
 function get_base_type(info::GITypeInfo)
     tag = get_tag(info)
@@ -363,9 +364,7 @@ function get_base_type(info::GITypeInfo)
         elseif typ===:GICallbackInfo
             return Function
         elseif typ===:GIObjectInfo
-            ns=get_namespace(interf_info)
-            prefix=get_c_prefix(ns)
-            return Symbol(prefix,string(get_name(interf_info)))
+            return GObject
         elseif typ===:GIInterfaceInfo
             ns=get_namespace(interf_info)
             prefix=get_c_prefix(ns)
@@ -377,15 +376,23 @@ function get_base_type(info::GITypeInfo)
             throw(NotImplementedError)
         end
     elseif tag == TAG_ARRAY
-        GIArrayType{Integer(get_array_type(info))}
+        atype=Integer(get_array_type(info))
+        if atype==GI_ARRAY_TYPE_ARRAY
+            return :GArray
+        elseif atype==GI_ARRAY_TYPE_PTR_ARRAY
+            return :GPtrArray
+        elseif atype==GI_ARRAY_TYPE_BYTE_ARRAY
+            return :GByteArray
+        end
+        GIArrayType{atype}
     elseif tag == TAG_GLIST
         GLib._GList
     elseif tag == TAG_GSLIST
         GLib._GSList
     elseif tag == TAG_GERROR
-        GError
+        :GError
     elseif tag == TAG_GHASH
-        HashTable
+        :GHashTable
     elseif tag == TAG_FILENAME
         String #FIXME: on funky platforms this may not be utf8/ascii
     else
@@ -401,7 +408,6 @@ get_call(info::GICallableInfo) = info
 
 function show(io::IO,info::GITypeInfo)
     bt = get_base_type(info)
-    print(io,bt)
     print(io,"GITypeInfo: ")
     if is_pointer(info)
         print(io,"Ptr{")

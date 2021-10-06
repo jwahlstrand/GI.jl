@@ -104,13 +104,9 @@ function all_struct_methods!(exprs,ns;print_summary=true,skiplist=[], struct_ski
             if GI.is_deprecated(m)
                 continue
             end
-            try
-                fun=GI.create_method(m,GI.get_c_prefix(ns))
-                push!(exprs, fun)
-                created+=1
-            catch NotImplementedError
-                not_implemented+=1
-            end
+            fun=GI.create_method(m,GI.get_c_prefix(ns))
+            push!(exprs, fun)
+            created+=1
         end
     end
 
@@ -295,6 +291,7 @@ end
 function write_to_file(filename,toplevel)
     open(filename,"w") do f
         Base.println(f,"quote")
+        Base.remove_linenums!(toplevel)
         Base.show_unquoted(f, toplevel)
         println(f)
         Base.println(f,"end")
