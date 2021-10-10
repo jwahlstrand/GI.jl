@@ -100,7 +100,7 @@ function obj_decl!(exprs,o,ns,handled)
         return
     end
     p=GI.get_parent(o)
-    if !in(GI.get_name(p),handled) && GI.get_namespace(o) == GI.get_namespace(p)
+    if p!==nothing && !in(GI.get_name(p),handled) && GI.get_namespace(o) == GI.get_namespace(p)
         obj_decl!(exprs,p,ns,handled)
     end
     append!(exprs,GI.gobject_decl(o,GI.get_c_prefix(ns)))
@@ -134,15 +134,11 @@ function gobject_decl(objectinfo,prefix)
         decl=quote
             mutable struct $leafname <: $oname
                 handle::Ptr{GObject}
-                function $leafname(handle::Ptr{GObject},owns=true)
+                function $leafname(handle::Ptr{GObject})
                     if handle == C_NULL
                         error($("Cannot construct $leafname with a NULL pointer"))
                     end
-                    if !owns
-                        return new(handle)
-                    else
-                        return gobject_ref(new(handle))
-                    end
+                    return gobject_ref(new(handle))
                 end
             end
             gtype_wrappers[$(QuoteNode(oname))] = $leafname
@@ -338,7 +334,7 @@ end
 function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:Type{Function}}
     typeinfo=get_type(info)
     callbackinfo=get_interface(typeinfo)
-    println(get_name(callbackinfo))
+    #println(get_name(callbackinfo))
     # get return type
     rettyp=get_return_type(callbackinfo)
     retctyp=extract_type(rettyp).ctype
@@ -376,14 +372,8 @@ end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GObject}}
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
-    if owns
-        # This conversion does all the gc prevention stuff
-        :(convert($(typeinfo.jtype), $name))
-    else
-        # We can just stuff the pointer in the object and dump it whenever
-        leaftype=Symbol(typeinfo.jtype,:Leaf)
-        :($leaftype($name))
-    end
+    # This conversion does all the gc prevention stuff
+    :(convert($(typeinfo.jtype), $name, $owns))
 end
 
 function extract_type(typeinfo::TypeInfo, info::ObjectLike)
@@ -408,7 +398,6 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {
     typ=GI.get_type(arginfo)
 
     if ti.jtype != :Any
-        println("default convert from: ",ti.jtype)
         :(convert($(ti.jtype), $name))
     elseif ti.gitype === Bool
         :(convert(Bool, $name))
@@ -541,6 +530,9 @@ function create_method(info::GIFunctionInfo,prefix)
         if typ.gitype == GICArray && arrlen >= 0
             len_name=Symbol("_",get_name(args[arrlen+1]))
             len_i=findfirst(a->(a.name === len_name),jargs)
+            if len_i === nothing
+                continue
+            end
             deleteat!(jargs,len_i)
             push!(prologue, :($len_name = length($aname)))
         end

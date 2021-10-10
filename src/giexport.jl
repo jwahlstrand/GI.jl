@@ -119,13 +119,17 @@ function all_struct_methods!(exprs,ns;print_summary=true,skiplist=[], struct_ski
     end
 end
 
-function all_objects!(exprs,exports,ns;handled=[])
+function all_objects!(exprs,exports,ns;handled=[],skiplist=[])
     objects=GI.get_all(ns,GI.GIObjectInfo)
 
     imported=length(objects)
     for o in objects
         name=GI.get_name(o)
         if name==:Object
+            imported -= 1
+            continue
+        end
+        if in(name, skiplist)
             imported -= 1
             continue
         end
@@ -167,6 +171,7 @@ function all_object_methods!(exprs,ns;skiplist=[],object_skiplist=[])
                 push!(exprs, fun)
                 created+=1
             catch NotImplementedError
+                println("not implemented: ",GI.get_name(m))
                 not_implemented+=1
             #catch LoadError
             #    println("error")
@@ -297,6 +302,8 @@ function write_to_file(filename,toplevel)
         Base.println(f,"end")
     end
 end
+
+write_to_file(path,filename,toplevel)=write_to_file(joinpath(path,filename),toplevel)
 
 function output_exprs()
     body = Expr(:block)

@@ -296,20 +296,31 @@ unsafe_convert(::Type{Ptr{GObject}}, w::GObject) = getfield(w, :handle)
 # this method should be used by gtk methods returning widgets of unknown type
 # and/or that might have been wrapped by julia before,
 # instead of a direct call to the constructor
-convert(::Type{T}, w::Ptr{GObject}) where {T <: GObject} = convert_(T, convert(Ptr{T}, w)) # this definition must be first due to a 0.2 dispatch bug
-convert(::Type{T}, ptr::Ptr{T}) where T <: GObject = convert_(T, ptr)
+convert(::Type{T}, w::Ptr{GObject}, steal=false) where {T <: GObject} = convert_(T, convert(Ptr{T}, w), steal) # this definition must be first due to a 0.2 dispatch bug
+convert(::Type{T}, ptr::Ptr{T}, steal=false) where T <: GObject = convert_(T, ptr, steal)
 
 # need to introduce convert_ since otherwise there was a StackOverFlow error
-function convert_(::Type{T}, ptr::Ptr{T}) where T <: GObject
+function convert_(::Type{T}, ptr::Ptr{T}, steal=false) where T <: GObject
     hnd = convert(Ptr{GObject}, ptr)
     if hnd == C_NULL
         throw(UndefRefError())
     end
+    # look for an existing wrapper we can re-use
     x = ccall((:g_object_get_qdata, libgobject), Ptr{GObject}, (Ptr{GObject}, UInt32), hnd, jlref_quark::UInt32)
     if x != C_NULL
-        return gobject_ref(unsafe_pointer_to_objref(x)::T)
+        ret = gobject_ref(unsafe_pointer_to_objref(x)::T)
+        if steal
+            gc_unref(hnd)
+        end
+    else
+        # create a wrapper
+        ret = wrap_gobject(hnd)::T
+        is_floating = (ccall(("g_object_is_floating", libgobject), Cint, (Ptr{GObject},), hnd)!=0)
+        if !steal || is_floating
+            gc_ref_sink(hnd)
+        end
     end
-    wrap_gobject(hnd)::T
+    ret
 end
 
 function wrap_gobject(hnd::Ptr{GObject})
@@ -374,8 +385,15 @@ gc_ref_closure(@nospecialize(cb::Function)) = (invoke(gc_ref, Tuple{Any}, cb), @
 gc_ref_closure(x::T) where {T} = (gc_ref(x), @cfunction(_gc_unref, Nothing, (Any, Ptr{Nothing})))
 
 # generally, you shouldn't be calling gc_ref(::Ptr{GObject})
-gc_ref(x::Ptr{GObject}) = ccall((:g_object_ref, libgobject), Nothing, (Ptr{GObject},), x)
-gc_unref(x::Ptr{GObject}) = ccall((:g_object_unref, libgobject), Nothing, (Ptr{GObject},), x)
+function gc_ref(x::Ptr{GObject})
+    ccall((:g_object_ref, libgobject), Nothing, (Ptr{GObject},), x)
+end
+function gc_ref_sink(x::Ptr{GObject})
+    ccall((:g_object_ref_sink, libgobject), Nothing, (Ptr{GObject},), x)
+end
+function gc_unref(x::Ptr{GObject})
+    ccall((:g_object_unref, libgobject), Nothing, (Ptr{GObject},), x)
+end
 
 const gc_preserve_glib = Dict{Union{WeakRef, GObject}, Bool}() # glib objects
 const gc_preserve_glib_lock = Ref(false) # to satisfy this lock, must never decrement a ref counter while it is held
@@ -416,7 +434,6 @@ function delref(@nospecialize(x::GObject))
 end
 function addref(@nospecialize(x::GObject))
     # internal helper function
-    ccall((:g_object_ref_sink, libgobject), Ptr{GObject}, (Ptr{GObject},), x)
     finalizer(delref, x)
     delete!(gc_preserve_glib, x) # in v0.2, the WeakRef assignment below wouldn't update the key
     gc_preserve_glib[WeakRef(x)] = false # record the existence of the object, but allow the finalizer
