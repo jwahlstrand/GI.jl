@@ -267,7 +267,7 @@ for (owner,property,typ) in [
     (:arg, :type, GIInfo), (:arg, :direction, EnumGI), (:arg, :ownership_transfer, EnumGI),
     (:type, :tag, EnumGI), (:type, :interface, MaybeGIInfo), (:type, :array_type, EnumGI),
     (:type, :array_length, Cint), (:type, :array_fixed_size, Cint), (:constant, :type, GIInfo),
-    (:value, :value, Int64), (:field, :type, GIInfo) ]
+    (:value, :value, Int64), (:field, :type, GIInfo), (:enum, :storage_type, EnumGI) ]
 
     ctype = get(ctypes, typ, typ)
     @eval function $(Symbol("get_$(property)"))(info::$(GIInfoTypes[owner]))
@@ -340,8 +340,8 @@ const GI_ARRAY_TYPE_PTR_ARRAY = 2
 const GI_ARRAY_TYPE_BYTE_ARRAY =3
 const GICArray = GIArrayType{GI_ARRAY_TYPE_C}
 
-"""Get the Julia type corresponding to a GITypeInfo"""
-# Awkward: returns a Symbol for some things and a Type for others
+"""Get the Julia type corresponding to a GITypeInfo. Not necessarily the actual
+type but a base type."""
 get_base_type(info::GIConstantInfo) = get_base_type(get_type(info))
 function get_base_type(info::GITypeInfo)
     tag = get_tag(info)
@@ -352,11 +352,17 @@ function get_base_type(info::GITypeInfo)
         interf_info = get_interface(info) # output here is a BaseInfo
         # docs say "inspect the type of the returned BaseInfo to further query whether it is a concrete GObject, a GInterface, a structure, etc."
         typ=GIInfoTypeNames[get_type(interf_info)+1]
-        # we don't have a type defined so return the name
         if typ===:GIStructInfo
             ns=get_namespace(interf_info)
             prefix=get_c_prefix(ns)
-            return Symbol(prefix,string(get_name(interf_info)))
+            gtyp=get_g_type(interf_info)
+            boxed_gtype = GLib.g_type_from_name(:GBoxed)
+            if GLib.g_isa(gtyp,boxed_gtype)
+                return GBoxed
+            else
+                # we don't have a type defined so return the name
+                return Symbol(prefix,string(get_name(interf_info)))
+            end
         elseif typ===:GIEnumGIInfo
             return Int32 # TODO: get the storage type using GI
         elseif typ===:GIFlagsInfo
@@ -366,10 +372,7 @@ function get_base_type(info::GITypeInfo)
         elseif typ===:GIObjectInfo
             return GObject
         elseif typ===:GIInterfaceInfo
-            ns=get_namespace(interf_info)
-            prefix=get_c_prefix(ns)
-            #return Symbol(prefix,string(get_name(interf_info)))
-            return :GObject
+            return GInterface
         else
             name=get_name(interf_info)
             println("$name, Unhandled type: ", typ,get_type(interf_info))
@@ -378,11 +381,11 @@ function get_base_type(info::GITypeInfo)
     elseif tag == TAG_ARRAY
         atype=Integer(get_array_type(info))
         if atype==GI_ARRAY_TYPE_ARRAY
-            return :GArray
+            return GArray
         elseif atype==GI_ARRAY_TYPE_PTR_ARRAY
-            return :GPtrArray
+            return GPtrArray
         elseif atype==GI_ARRAY_TYPE_BYTE_ARRAY
-            return :GByteArray
+            return GByteArray
         end
         GIArrayType{atype}
     elseif tag == TAG_GLIST
@@ -390,9 +393,9 @@ function get_base_type(info::GITypeInfo)
     elseif tag == TAG_GSLIST
         GLib._GSList
     elseif tag == TAG_GERROR
-        :GError
+        GError
     elseif tag == TAG_GHASH
-        :GHashTable
+        GHashTable
     elseif tag == TAG_FILENAME
         String #FIXME: on funky platforms this may not be utf8/ascii
     else

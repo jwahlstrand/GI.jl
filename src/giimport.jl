@@ -298,7 +298,6 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
     end
 end
 
-#this should only be used for stuff that's hard to implement as cconvert
 function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:Type{GICArray}}
     if typeof(info)==GIFunctionInfo
         return nothing
@@ -311,6 +310,18 @@ function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:
         return nothing
     end
     :(convert(Vector{$elmctype},$name))
+end
+
+function extract_type(typeinfo::GITypeInfo,info::Type{GArray})
+    TypeDesc{Type{GArray}}(GArray,:Any, :(Ptr{GArray}))
+end
+
+function extract_type(typeinfo::GITypeInfo,info::Type{GPtrArray})
+    TypeDesc{Type{GPtrArray}}(GPtrArray,:Any, :(Ptr{GPtrArray}))
+end
+
+function extract_type(typeinfo::GITypeInfo,info::Type{GByteArray})
+    TypeDesc{Type{GByteArray}}(GByteArray,:Any, :(Ptr{GByteArray}))
 end
 
 function extract_type(typeinfo::GITypeInfo,listtype::Type{T}) where {T<:GLib._LList}
@@ -367,13 +378,35 @@ function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GObject
     ns=get_namespace(interf_info)
     prefix=get_c_prefix(ns)
     name = Symbol(prefix,string(get_name(interf_info)))
-    TypeDesc{Type{GObject}}(GObject, name,:(Ptr{GObject}))
+    TypeDesc{Type{GObject}}(GObject, name, :(Ptr{GObject}))
+end
+
+function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterface}
+    interf_info = get_interface(typeinfo)
+    ns=get_namespace(interf_info)
+    prefix=get_c_prefix(ns)
+    name = Symbol(prefix,string(get_name(interf_info)))
+    TypeDesc{Type{GInterface}}(GInterface, name, :(Ptr{GObject}))
+end
+
+function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
+    interf_info = get_interface(typeinfo)
+    ns=get_namespace(interf_info)
+    prefix=get_c_prefix(ns)
+    name = Symbol(prefix,string(get_name(interf_info)))
+    TypeDesc{Type{GBoxed}}(GBoxed, name, :(Ptr{$name}))
 end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GObject}}
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
     # This conversion does all the gc prevention stuff
     :(convert($(typeinfo.jtype), $name, $owns))
+end
+
+function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GInterface}}
+    owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
+    # This conversion does all the gc prevention stuff
+    :(convert(GObject, $name, $owns))
 end
 
 function extract_type(typeinfo::TypeInfo, info::ObjectLike)
@@ -404,6 +437,14 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {
     else
         nothing
     end
+end
+
+function extract_type(typeinfo::GITypeInfo,info::Type{GError})
+    TypeDesc{Type{GError}}(GError,:Any, :(Ptr{GError}))
+end
+
+function extract_type(typeinfo::GITypeInfo,info::Type{GHashTable})
+    TypeDesc{Type{GHashTable}}(GHashTable,:Any, :(Ptr{GHashTable}))
 end
 
 struct Arg
