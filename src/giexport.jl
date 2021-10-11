@@ -41,13 +41,12 @@ function all_const_exprs(ns;print_summary=true)
     const_mod
 end
 
-function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],import_as_opaque=[])
+function struct_exprs!(exprs,exports,ns,structs;print_summary=true,excludelist=[],import_as_opaque=[])
     struct_skiplist=excludelist
 
-    s=GI.get_all(ns,GI.GIStructInfo)
-    ss=filter(p->∉(GI.get_name(p),struct_skiplist),s)
-    imported=length(ss)
-    for ssi in ss
+    imported=length(structs)
+    for ss in structs
+        ssi=GI.gi_find_by_name(ns,ss)
         name=GI.get_name(ssi)
         fields=GI.get_fields(ssi)
         if occursin("Private",String(name))
@@ -73,6 +72,49 @@ function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],im
             imported-=1
             continue
         end
+        push!(exports.args, full_name(ssi,GI.get_c_prefix(ns)))
+    end
+
+    if print_summary
+        printstyled("Generated ",imported," structs out of ",length(structs),"\n";color=:green)
+    end
+
+    struct_skiplist
+end
+
+function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],import_as_opaque=[])
+    struct_skiplist=excludelist
+
+    s=GI.get_all(ns,GI.GIStructInfo)
+    ss=filter(p->∉(GI.get_name(p),struct_skiplist),s)
+    imported=length(ss)
+    for ssi in ss
+        name=GI.get_name(ssi)
+        println(name)
+        fields=GI.get_fields(ssi)
+        if occursin("Private",String(name))
+            imported-=1
+            continue
+        end
+        if GI.is_gtype_struct(ssi) # these are "class structures" and according to the documentation we probably don't need them in bindings
+            push!(struct_skiplist,name)
+            if print_summary
+                printstyled(name," is a gtype struct, skipping\n";color=:yellow)
+            end
+            imported-=1
+            continue
+        end
+        name = Symbol("$name")
+        #try
+            push!(exprs, GI.struct_decl(ssi,GI.get_c_prefix(ns);force_opaque=in(name,import_as_opaque)))
+        #catch NotImplementedError
+        #    if print_summary
+        #        printstyled(name," not implemented\n";color=:red)
+        #    end
+        #    push!(struct_skiplist,name)
+        #    imported-=1
+        #    continue
+        #end
         push!(exports.args, full_name(ssi,GI.get_c_prefix(ns)))
     end
 
