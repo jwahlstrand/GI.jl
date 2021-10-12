@@ -468,6 +468,12 @@ function symbol_from_lib(libname)
         return :libcairo_gobject
     elseif occursin("libatk",libname)
         return :libatk
+    elseif occursin("libgdkpixbuf",libname)
+        return :libgdkpixbuf
+    elseif occursin("libgdk3",libname)
+        return :libgdk3
+    elseif occursin("libgtk3",libname)
+        return :libgtk3
     end
     libname
 end
