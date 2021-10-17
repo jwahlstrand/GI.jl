@@ -107,25 +107,40 @@ function obj_decl!(exprs,o,ns,handled)
     push!(handled,GI.get_name(o))
 end
 
+function prop_dict(objectinfo)
+    properties=GI.get_properties(objectinfo)
+    d=Dict{Symbol,Tuple{Any,Bool,Int32}}()
+    for p in properties
+        flags=get_flags(p)
+        tran=get_ownership_transfer(p)
+        typ=get_type(p)
+        btyp=get_base_type(typ)
+        ptyp=extract_type(typ,btyp)
+        name=Symbol(replace(String(get_name(p)),"-"=>"_"))
+        d[name]=(ptyp.jstype,tran,flags)
+    end
+    parentinfo=get_parent(objectinfo)
+    if parentinfo!==nothing
+        return merge(d,prop_dict(parentinfo))
+    else
+        return d
+    end
+end
+
 function gobject_decl(objectinfo,prefix)
-    g_type = GI.get_g_type(objectinfo)
+    g_type = get_g_type(objectinfo)
     oname = Symbol(GLib.g_type_name(g_type))
-    type_init = GI.get_type_init(objectinfo)
-    parentinfo = GI.get_parent(objectinfo)
-    pg_type = GI.get_g_type(parentinfo)
+    parentinfo = get_parent(objectinfo)
+    pg_type = get_g_type(parentinfo)
     pname = Symbol(GI.GLib.g_type_name(pg_type))
-    q=findfirst("_get_type",string(type_init))
-    symname=Symbol(chop(string(type_init),tail=q[end]-q[1]+1))
-    libs=GI.get_shlibs(GINamespace(GI.get_namespace(objectinfo)))
-    lib=libs[findfirst(l->(nothing!=dlsym(dlopen(l),type_init)),libs)]
-    # The call to type_init really slows things down and doesn't seem to be necessary.
-    # Leaving it here because it probably is necessary.
+    d=prop_dict(objectinfo)
+    READABLE   = 0x00000001
+    WRITABLE   = 0x00000002
+    rd=filter((p->p.second[3] & READABLE!=0),d)
+    wd=filter((p->p.second[3] & WRITABLE!=0),d)
+    propnames=collect(keys(d))
     decl=quote
-        #gtype = ccall((($(QuoteNode(type_init))), $lib),GType, ())
         abstract type $oname <: $pname end
-        #gtype_decl = GLib.get_gtype_decl($oname, $lib, $symname)
-        #get_type_decl(Symbol(string(:($oname), "Impl")), $oname, gtype, gtype_decl, @__MODULE__)
-        #gtype_abstracts[$(QuoteNode(oname))] = $oname
     end
     exprs=Expr[]
     push!(exprs,decl)
@@ -141,7 +156,38 @@ function gobject_decl(objectinfo,prefix)
                     return gobject_ref(new(handle))
                 end
             end
+            local kwargs, T #to prevent Julia-0.2 from name-mangling kwargs, <: T
+            function $leafname(args...; kwargs...)
+                if isempty(kwargs)
+                    error(MethodError($leafname, args))
+                end
+                w = $leafname(args...)
+                for (kw, val) in kwargs
+                    set_gtk_property!(w, kw, val)
+                end
+                w
+            end
             gtype_wrappers[$(QuoteNode(oname))] = $leafname
+            function $oname(args...; kwargs...)
+                $leafname(args...; kwargs...)
+            end
+            Base.propertynames(o::$leafname) = $propnames
+            function Base.getproperty(o::$leafname,name::Symbol)
+                d=$rd
+                if in(name,keys(d))
+                    return get_gtk_property(o,name,eval(d[name][1]))
+                else
+                    return getfield(o,name)
+                end
+            end
+            function Base.setproperty!(o::$leafname,name::Symbol,x)
+                d=$wd
+                if in(name,keys(d))
+                    set_gtk_property!(o,name,x)
+                else
+                    setfield(o,name,x)
+                end
+            end
         end
         push!(exprs, decl)
     end
@@ -177,6 +223,7 @@ const TypeInfo = Union{GITypeInfo,Type{InstanceType}}
 struct TypeDesc{T}
     gitype::T
     jtype::Union{Expr,Symbol}    # used in Julia for arguments
+    jstype::Union{Expr,Symbol}   # most specific relevant Julia type (for properties)
     ctype::Union{Expr,Symbol}    # used in ccall's
 end
 
@@ -191,7 +238,7 @@ function extract_type(info::GIArgInfo)
     typdesc = extract_type(get_type(info))
     if may_be_null(info) && typdesc.jtype !== :Any
         jtype=typdesc.jtype
-        typdesc = TypeDesc(typdesc.gitype, :(Maybe($jtype)), typdesc.ctype)
+        typdesc = TypeDesc(typdesc.gitype, :(Maybe($jtype)), typdesc.jstype, typdesc.ctype)
     end
     typdesc
 end
@@ -205,24 +252,27 @@ function extract_type(info::GITypeInfo, basetype)
     typ = Symbol(string(basetype))
     if is_pointer(info)
         ptyp = :(Ptr{$typ})
+        styp = typ
     elseif typ===:Bool
         ptyp = :Cint
         typ = :Any
+        styp = :Bool
     else
         ptyp = typ
+        styp = typ
         typ = :Any
     end
-    TypeDesc(basetype,typ,ptyp)
+    TypeDesc(basetype,typ,styp,ptyp)
 end
 
 #  T<:SomeType likes to steal this:
 function extract_type(info::GITypeInfo, basetype::Type{Union{}})
-    TypeDesc(Union{}, :Any, :Nothing)
+    TypeDesc(Union{}, :Any, :Any, :Nothing)
 end
 
 function extract_type(info::GITypeInfo, basetype::Type{String})
     @assert is_pointer(info)
-    TypeDesc{Type{String}}(String,:Any,:(Ptr{UInt8}))
+    TypeDesc{Type{String}}(String,:Any,:String,:(Ptr{UInt8}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}})
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
@@ -241,15 +291,15 @@ function extract_type(typeinfo::TypeInfo, info::GIStructInfo)
     name = typename(info)
     if is_pointer(typeinfo)
         #TypeDesc(info,:(Ptr{$name}),:(Ptr{$name})) # use this for plain old structs?
-        TypeDesc(info,typename(info),:(Ptr{$name}))
+        TypeDesc(info,typename(info),typename(info),:(Ptr{$name}))
         #TypeDesc(info,:Any,:(Ptr{Nothing}))
     else
-        TypeDesc(info,name,name)
+        TypeDesc(info,name,name,name)
     end
 end
 
 function extract_type(typeinfo::GITypeInfo,info::GIEnumGIOrFlags)
-    TypeDesc{GIEnumGIOrFlags}(info,:Any, :EnumGI)
+    TypeDesc{GIEnumGIOrFlags}(info,:Any, :Int32, :EnumGI)
 end
 
 function convert_to_c(argname::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:GIEnumGIOrFlags}
@@ -264,7 +314,7 @@ function extract_type(typeinfo::GITypeInfo,info::Type{GICArray})
     elmgitype=elmtype.gitype
     elmjtype=elmtype.jtype
     #TypeDesc{Type{GICArray}}(GICArray,:(Vector{$elmgitype}), :(Ptr{$elmctype}))
-    TypeDesc{Type{GICArray}}(GICArray,:Any, :(Ptr{$elmctype}))
+    TypeDesc{Type{GICArray}}(GICArray,:Any, :(Array{$elmtype}), :(Ptr{$elmctype}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T<:Type{GICArray}}
     if typeof(arginfo)==GIFunctionInfo
@@ -313,15 +363,15 @@ function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:
 end
 
 function extract_type(typeinfo::GITypeInfo,info::Type{GArray})
-    TypeDesc{Type{GArray}}(GArray,:Any, :(Ptr{GArray}))
+    TypeDesc{Type{GArray}}(GArray,:Any, :GArray, :(Ptr{GArray}))
 end
 
 function extract_type(typeinfo::GITypeInfo,info::Type{GPtrArray})
-    TypeDesc{Type{GPtrArray}}(GPtrArray,:Any, :(Ptr{GPtrArray}))
+    TypeDesc{Type{GPtrArray}}(GPtrArray,:Any, :GPtrArray, :(Ptr{GPtrArray}))
 end
 
 function extract_type(typeinfo::GITypeInfo,info::Type{GByteArray})
-    TypeDesc{Type{GByteArray}}(GByteArray,:Any, :(Ptr{GByteArray}))
+    TypeDesc{Type{GByteArray}}(GByteArray,:Any, :GByteArray, :(Ptr{GByteArray}))
 end
 
 function extract_type(typeinfo::GITypeInfo,listtype::Type{T}) where {T<:GLib._LList}
@@ -330,7 +380,7 @@ function extract_type(typeinfo::GITypeInfo,listtype::Type{T}) where {T<:GLib._LL
     elmtype = extract_type(elm).ctype
     lt = listtype == GLib._GSList ? :(GLib._GSList) : :(GLib._GList)
     #println("extract_type:",lt)
-    TypeDesc{Type{GList}}(GList, :(GLib.LList{$lt{$elmtype}}), :(Ptr{$lt{$elmtype}}))
+    TypeDesc{Type{GList}}(GList, :(GLib.LList{$lt{$elmtype}}),:(GLib.LList{$lt{$elmtype}}), :(Ptr{$lt{$elmtype}}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{GList}})
     #owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
@@ -339,7 +389,7 @@ end
 
 function extract_type(typeinfo::GITypeInfo,basetype::Type{Function})
     #throw(NotImplementedError)
-    TypeDesc{Type{Function}}(Function,:Function, :(Ptr{Nothing}))
+    TypeDesc{Type{Function}}(Function,:Function, :Function, :(Ptr{Nothing}))
 end
 
 function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:Type{Function}}
@@ -373,12 +423,17 @@ end
 # not sure the best way to implement this given no multiple inheritance
 typename(info::GIInterfaceInfo) = :GObject #FIXME
 
+#function typename(info::GIInterfaceInfo)
+#    g_type = GI.get_g_type(info)
+#    Symbol(GLib.g_type_name(g_type))
+#end
+
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GObject}
     interf_info = get_interface(typeinfo)
     ns=get_namespace(interf_info)
     prefix=get_c_prefix(ns)
     name = Symbol(prefix,string(get_name(interf_info)))
-    TypeDesc{Type{GObject}}(GObject, name, :(Ptr{GObject}))
+    TypeDesc{Type{GObject}}(GObject, name, name, :(Ptr{GObject}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterface}
@@ -386,7 +441,7 @@ function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterf
     ns=get_namespace(interf_info)
     prefix=get_c_prefix(ns)
     name = Symbol(prefix,string(get_name(interf_info)))
-    TypeDesc{Type{GInterface}}(GInterface, name, :(Ptr{GObject}))
+    TypeDesc{Type{GInterface}}(GInterface, name, name, :(Ptr{GObject}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
@@ -394,7 +449,7 @@ function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
     ns=get_namespace(interf_info)
     prefix=get_c_prefix(ns)
     name = Symbol(prefix,string(get_name(interf_info)))
-    TypeDesc{Type{GBoxed}}(GBoxed, name, :(Ptr{$name}))
+    TypeDesc{Type{GBoxed}}(GBoxed, name, name, :(Ptr{$name}))
 end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GObject}}
@@ -414,10 +469,10 @@ function extract_type(typeinfo::TypeInfo, info::ObjectLike)
         if typename(info)===:GParam  # these are not really GObjects
             return TypeDesc(info,:GParamSpec,:(Ptr{GParamSpec}))
         end
-        TypeDesc(info,typename(info),:(Ptr{GObject}))
+        TypeDesc(info,typename(info),typename(info),:(Ptr{GObject}))
     else
         # a GList has implicitly pointers to all elements
-        TypeDesc(info,:INVALID,:GObject)
+        TypeDesc(info,:INVALID,:INVALID,:GObject)
     end
 end
 
@@ -440,11 +495,11 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {
 end
 
 function extract_type(typeinfo::GITypeInfo,info::Type{GError})
-    TypeDesc{Type{GError}}(GError,:Any, :(Ptr{GError}))
+    TypeDesc{Type{GError}}(GError,:Any, :GError, :(Ptr{GError}))
 end
 
 function extract_type(typeinfo::GITypeInfo,info::Type{GHashTable})
-    TypeDesc{Type{GHashTable}}(GHashTable,:Any, :(Ptr{GHashTable}))
+    TypeDesc{Type{GHashTable}}(GHashTable,:Any, :GHashTable, :(Ptr{GHashTable}))
 end
 
 struct Arg

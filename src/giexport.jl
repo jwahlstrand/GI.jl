@@ -228,6 +228,7 @@ function all_interfaces!(exprs,exports,ns;skiplist=[])
     imported=length(interfaces)
     for i in interfaces
         name=GI.get_name(i)
+        #p=GI.get_prerequisites(i)
         type_init = GI.get_type_init(i)
         if in(name,skiplist)
             imported-=1

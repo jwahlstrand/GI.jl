@@ -230,7 +230,8 @@ for (owner, property) in [
     (:object, :method), (:object, :signal), (:object, :interface),
     (:object, :constant), (:object, :field),
     (:interface, :method), (:interface, :signal), (:callable, :arg),
-    (:enum, :value), (:struct, :field), (:struct, :method)]
+    (:enum, :value), (:struct, :field), (:struct, :method),
+    (:interface, :prerequisite)]
     @eval function $(Symbol("get_$(property)s"))(info::$(GIInfoTypes[owner]))
         n = Int(ccall(($("g_$(owner)_info_get_n_$(property)s"), libgi), Cint, (Ptr{GIBaseInfo},), info))
         GIInfo[ GIInfo( ccall(($("g_$(owner)_info_get_$property"), libgi), Ptr{GIBaseInfo},
@@ -248,6 +249,12 @@ end
 function get_properties(info::GIObjectInfo)
     n = Int(ccall(("g_object_info_get_n_properties", libgi), Cint, (Ptr{GIBaseInfo},), info))
     GIInfo[ GIInfo( ccall(("g_object_info_get_property", libgi), Ptr{GIBaseInfo},
+                  (Ptr{GIBaseInfo}, Cint), info, i)) for i=0:n-1]
+end
+
+function get_properties(info::GIInterfaceInfo)
+    n = Int(ccall(("g_interface_info_get_n_properties", libgi), Cint, (Ptr{GIBaseInfo},), info))
+    GIInfo[ GIInfo( ccall(("g_interface_info_get_property", libgi), Ptr{GIBaseInfo},
                   (Ptr{GIBaseInfo}, Cint), info, i)) for i=0:n-1]
 end
 
