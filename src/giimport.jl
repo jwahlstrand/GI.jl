@@ -107,8 +107,8 @@ function obj_decl!(exprs,o,ns,handled)
     push!(handled,GI.get_name(o))
 end
 
-function prop_dict(objectinfo)
-    properties=GI.get_properties(objectinfo)
+function prop_dict(info)
+    properties=GI.get_properties(info)
     d=Dict{Symbol,Tuple{Any,Bool,Int32}}()
     for p in properties
         flags=get_flags(p)
@@ -119,6 +119,11 @@ function prop_dict(objectinfo)
         name=Symbol(replace(String(get_name(p)),"-"=>"_"))
         d[name]=(ptyp.jstype,tran,flags)
     end
+    d
+end
+
+function prop_dict_incl_parents(objectinfo::GIObjectInfo)
+    d=prop_dict(objectinfo)
     parentinfo=get_parent(objectinfo)
     if parentinfo!==nothing
         return merge(d,prop_dict(parentinfo))
@@ -134,11 +139,15 @@ function gobject_decl(objectinfo,prefix)
     pg_type = get_g_type(parentinfo)
     pname = Symbol(GI.GLib.g_type_name(pg_type))
     d=prop_dict(objectinfo)
+    for i in get_interfaces(objectinfo)
+        di=prop_dict(i)
+        d=merge(d,di)
+    end
     READABLE   = 0x00000001
     WRITABLE   = 0x00000002
     rd=filter((p->p.second[3] & READABLE!=0),d)
     wd=filter((p->p.second[3] & WRITABLE!=0),d)
-    propnames=collect(keys(d))
+    propnames=vcat([:handle],collect(keys(d)))
     decl=quote
         abstract type $oname <: $pname end
     end
@@ -185,7 +194,7 @@ function gobject_decl(objectinfo,prefix)
                 if in(name,keys(d))
                     set_gtk_property!(o,name,x)
                 else
-                    setfield(o,name,x)
+                    setfield!(o,name,x)
                 end
             end
         end
@@ -441,7 +450,7 @@ function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterf
     ns=get_namespace(interf_info)
     prefix=get_c_prefix(ns)
     name = Symbol(prefix,string(get_name(interf_info)))
-    TypeDesc{Type{GInterface}}(GInterface, name, name, :(Ptr{GObject}))
+    TypeDesc{Type{GInterface}}(GInterface, :Any, name, :(Ptr{GObject}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
