@@ -176,7 +176,7 @@ function gobject_decl(objectinfo,prefix)
                 end
                 w
             end
-            gtype_wrappers[$(QuoteNode(oname))] = $leafname
+            gtype_wrapper_cache[$(QuoteNode(oname))] = $leafname
             function $oname(args...; kwargs...)
                 $leafname(args...; kwargs...)
             end

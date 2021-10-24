@@ -165,6 +165,12 @@ function all_objects!(exprs,exports,ns;handled=[],skiplist=[])
     objects=GI.get_all(ns,GI.GIObjectInfo)
 
     imported=length(objects)
+    # precompilation prevents adding directly to GLib's gtype_wrapper cache here
+    # so we add to a package local cache and merge with GLib's cache in __init__()
+    gtype_cache = quote
+        gtype_wrapper_cache = Dict{Symbol, Type}()
+    end
+    push!(exprs,gtype_cache)
     for o in objects
         name=GI.get_name(o)
         if name==:Object
@@ -182,6 +188,10 @@ function all_objects!(exprs,exports,ns;handled=[],skiplist=[])
         obj_decl!(exprs,o,ns,handled)
         push!(exports.args, full_name(o,GI.get_c_prefix(ns)))
     end
+    gtype_cache_init = quote
+        gtype_wrapper_cache_init() = merge!(GLib.gtype_wrappers,gtype_wrapper_cache)
+    end
+    push!(exprs,gtype_cache_init)
 
     println("Imported ",imported," objects out of ",length(objects))
 end
