@@ -469,9 +469,6 @@ function get_value(info::GIConstantInfo)
         x = Array{Cstring,1}(undef,1) #or mutable
         size = ccall((:g_constant_info_get_value,libgi),Cint,(Ptr{GIBaseInfo}, Ptr{Cstring}), info, x)
 
-        #strptr = unsafe_load(convert(Ptr{Ptr{UInt8}},x))
-        #val = bytestring(strptr)
-
         val = unsafe_string(x[1])
 
         ccall((:g_constant_info_free_value,libgi), Nothing, (Ptr{GIBaseInfo}, Ptr{Nothing}), info, x)

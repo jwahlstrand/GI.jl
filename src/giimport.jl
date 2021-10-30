@@ -51,10 +51,8 @@ function struct_decl(structinfo,prefix;force_opaque=false)
     gtype=get_g_type(structinfo)
     isboxed = GLib.g_isa(gtype,GLib.g_type_from_name(:GBoxed))
     decl = isboxed ? :($gstructname <: GBoxed) : gstructname
-    fin = Expr[]
     if isboxed
         type_init = String(get_type_init(structinfo))
-        #println(gstructname, " type_init is ",get_type_init(structinfo)," ",length(fields)," fields")
         libs=get_shlibs(GINamespace(get_namespace(structinfo)))
         lib=libs[findfirst(l->(nothing!=dlsym(dlopen(l),type_init)),libs)]
         slib=symbol_from_lib(lib)
@@ -62,13 +60,16 @@ function struct_decl(structinfo,prefix;force_opaque=false)
             GLib.g_type(::Type{T}) where {T <: $gstructname} =
                       ccall(($type_init, $slib), GType, ())
             function $gstructname(ref::Ptr{$gstructname}, own::Bool = false)
-                gtype = ccall((($(QuoteNode(type_init))), $slib),GType, ())
-                own || ccall((:g_boxed_copy, libgobject), Nothing, (GType, Ptr{$gstructname},), gtype, ref)
+                #println("constructing ",$(QuoteNode(gstructname)), " ",own)
                 x = new(ref)
-                finalizer(x::$gstructname->begin
+                if own
+                    finalizer(x::$gstructname->begin
+                        gtype = ccall((($(QuoteNode(type_init))), $slib),GType, ())
                         ccall((:g_boxed_free, libgobject), Nothing, (GType, Ptr{$gstructname},), gtype, x.handle)
                         #@async println("finalized ",$gstructname)
                     end, x)
+                end
+                x
             end
         end
     end
@@ -84,11 +85,17 @@ function struct_decl(structinfo,prefix;force_opaque=false)
                 $(fieldsexpr...)
             end
         end
-    else
+    elseif isboxed
         struc=quote
             mutable struct $decl
                 handle::Ptr{$gstructname}
                 $fin
+            end
+        end
+    else
+        struc=quote
+            mutable struct $decl
+                handle::Ptr{$gstructname}
             end
         end
     end
@@ -471,6 +478,12 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
     # This conversion does all the gc prevention stuff
     :(convert(GObject, $name, $owns))
+end
+
+function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GBoxed}}
+    owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
+    # This conversion does all the gc prevention stuff
+    :(convert($(typeinfo.jtype), $name, $owns))
 end
 
 function extract_type(typeinfo::TypeInfo, info::ObjectLike)
