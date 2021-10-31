@@ -71,6 +71,11 @@ function struct_decl(structinfo,prefix;force_opaque=false)
                 end
                 x
             end
+            function Base.setindex!(v::GLib.GV, ::Type{T}) where T <: $gstructname
+                gtype = ccall((($(QuoteNode(type_init))), $slib),GType, ())
+                ccall((:g_value_init, libgobject), Nothing, (Ptr{GValue}, Csize_t), v, gtype)
+                v
+            end
         end
     end
     if length(fields)>0 && !force_opaque
@@ -116,7 +121,7 @@ end
 
 function prop_dict(info)
     properties=GI.get_properties(info)
-    d=Dict{Symbol,Tuple{Any,Bool,Int32}}()
+    d=Dict{Symbol,Tuple{Any,Int32,Int32}}()
     for p in properties
         flags=get_flags(p)
         tran=get_ownership_transfer(p)
@@ -133,7 +138,7 @@ function prop_dict_incl_parents(objectinfo::GIObjectInfo)
     d=prop_dict(objectinfo)
     parentinfo=get_parent(objectinfo)
     if parentinfo!==nothing
-        return merge(d,prop_dict(parentinfo))
+        return merge(prop_dict(parentinfo),d)
     else
         return d
     end
@@ -148,7 +153,7 @@ function gobject_decl(objectinfo,prefix)
     d=prop_dict(objectinfo)
     for i in get_interfaces(objectinfo)
         di=prop_dict(i)
-        d=merge(d,di)
+        d=merge(di,d)
     end
     READABLE   = 0x00000001
     WRITABLE   = 0x00000002
@@ -470,20 +475,29 @@ end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GObject}}
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
-    # This conversion does all the gc prevention stuff
-    :(convert($(typeinfo.jtype), $name, $owns))
+    if may_be_null(arginfo)
+        :(($name == C_NULL ? nothing : convert($(typeinfo.jtype), $name, $owns)))
+    else
+        :(convert($(typeinfo.jtype), $name, $owns))
+    end
 end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GInterface}}
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
-    # This conversion does all the gc prevention stuff
-    :(convert(GObject, $name, $owns))
+    if may_be_null(arginfo)
+        :(($name == C_NULL ? nothing : convert(GObject, $name, $owns)))
+    else
+        :(convert(GObject, $name, $owns))
+    end
 end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GBoxed}}
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
-    # This conversion does all the gc prevention stuff
-    :(convert($(typeinfo.jtype), $name, $owns))
+    if may_be_null(arginfo)
+        :(($name == C_NULL ? nothing : convert($(typeinfo.jtype), $name, $owns)))
+    else
+        :(convert($(typeinfo.jtype), $name, $owns))
+    end
 end
 
 function extract_type(typeinfo::TypeInfo, info::ObjectLike)
