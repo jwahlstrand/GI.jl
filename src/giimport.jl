@@ -250,10 +250,13 @@ end
 
 # extract_type creates a TypeDesc corresponding to an argument or field
 # for constructing functions and structs
+# FIXME: currently sort of a mess
 
 # convert_from_c(name,arginfo,typeinfo) produces an expression that sets the symbol "name" from GIArgInfo
+# used for certain types to convert returned values from ccall's to Julia types
 
-# convert_to_c...
+# convert_to_c(argname, arginfo, typeinfo) produces an expression that converts
+# a Julia input to something a ccall can use as an argument
 
 function extract_type(info::GIArgInfo)
     typdesc = extract_type(get_type(info))
@@ -696,7 +699,4 @@ function create_method(info::GIFunctionInfo,prefix)
     blk = Expr(:block)
     blk.args = vcat(prologue, c_call, epilogue, retstmt )
     fun = Expr(:function, j_call, blk)
-    #println(fun)
-    fun
-
 end

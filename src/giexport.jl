@@ -1,3 +1,5 @@
+# functions that output expressions for a library in bulk
+
 function all_const_exprs!(const_mod, const_exports, ns;print_summary=true)
     c = get_consts(ns)
 
