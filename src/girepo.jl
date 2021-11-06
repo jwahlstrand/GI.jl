@@ -271,7 +271,7 @@ for (owner,property,typ) in [
     (:base, :container, MaybeGIInfo), (:registered_type, :g_type, GType), (:object, :parent, MaybeGIInfo), (:object, :type_init, Symbol),
     (:callable, :return_type, GIInfo), (:callable, :caller_owns, EnumGI), (:registered_type, :type_init, Symbol),
     (:function, :flags, EnumGI), (:function, :symbol, Symbol), (:property, :type, GIInfo), (:property, :ownership_transfer, EnumGI), (:property, :flags, EnumGI),
-    (:arg, :type, GIInfo), (:arg, :direction, EnumGI), (:arg, :ownership_transfer, EnumGI),
+    (:arg, :type, GIInfo), (:arg, :direction, EnumGI), (:arg, :ownership_transfer, EnumGI), #(:function, :property, MaybeGIInfo),
     (:type, :tag, EnumGI), (:type, :interface, MaybeGIInfo), (:type, :array_type, EnumGI),
     (:type, :array_length, Cint), (:type, :array_fixed_size, Cint), (:constant, :type, GIInfo),
     (:value, :value, Int64), (:field, :type, GIInfo), (:enum, :storage_type, EnumGI) ]
@@ -382,7 +382,7 @@ function get_base_type(info::GITypeInfo)
             return GInterface
         else
             name=get_name(interf_info)
-            println("$name, Unhandled type: ", typ,get_type(interf_info))
+            #println("$name, Unhandled type: ", typ," ",get_type(interf_info))
             throw(NotImplementedError)
         end
     elseif tag == TAG_ARRAY

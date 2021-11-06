@@ -108,19 +108,19 @@ function struct_decl(structinfo,prefix;force_opaque=false)
 end
 
 function obj_decl!(exprs,o,ns,handled)
-    if in(GI.get_name(o),handled)
+    if in(get_name(o),handled)
         return
     end
-    p=GI.get_parent(o)
-    if p!==nothing && !in(GI.get_name(p),handled) && GI.get_namespace(o) == GI.get_namespace(p)
+    p=get_parent(o)
+    if p!==nothing && !in(get_name(p),handled) && get_namespace(o) == get_namespace(p)
         obj_decl!(exprs,p,ns,handled)
     end
-    append!(exprs,GI.gobject_decl(o,GI.get_c_prefix(ns)))
-    push!(handled,GI.get_name(o))
+    append!(exprs,gobject_decl(o,get_c_prefix(ns)))
+    push!(handled,get_name(o))
 end
 
 function prop_dict(info)
-    properties=GI.get_properties(info)
+    properties=get_properties(info)
     d=Dict{Symbol,Tuple{Any,Int32,Int32}}()
     for p in properties
         flags=get_flags(p)
@@ -165,7 +165,7 @@ function gobject_decl(objectinfo,prefix)
     end
     exprs=Expr[]
     push!(exprs,decl)
-    if !GI.get_abstract(objectinfo)
+    if !get_abstract(objectinfo)
         leafname = Symbol(oname,"Leaf")
         decl=quote
             mutable struct $leafname <: $oname
@@ -216,7 +216,7 @@ function gobject_decl(objectinfo,prefix)
 end
 
 function ginterface_decl(interfaceinfo,prefix)
-    g_type = GI.get_g_type(interfaceinfo)
+    g_type = get_g_type(interfaceinfo)
     iname = Symbol(GLib.g_type_name(g_type))
     decl=quote
         struct $iname <: GInterface
@@ -231,10 +231,6 @@ function ginterface_decl(interfaceinfo,prefix)
 end
 
 mutable struct NotImplementedError <: Exception
-end
-
-mutable struct UnsupportedType <: Exception
-    typ
 end
 
 abstract type InstanceType end
@@ -304,7 +300,7 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{
 end
 
 function typename(info::GIStructInfo)
-    g_type = GI.get_g_type(info)
+    g_type = get_g_type(info)
     if Symbol(GLib.g_type_name(g_type))===:void  # this isn't a GType
         Symbol(get_name(info))
     else
@@ -440,7 +436,7 @@ end
 const ObjectLike = Union{GIObjectInfo, GIInterfaceInfo}
 
 function typename(info::GIObjectInfo)
-    g_type = GI.get_g_type(info)
+    g_type = get_g_type(info)
     Symbol(GLib.g_type_name(g_type))
 end
 
@@ -448,7 +444,7 @@ end
 typename(info::GIInterfaceInfo) = :GObject #FIXME
 
 #function typename(info::GIInterfaceInfo)
-#    g_type = GI.get_g_type(info)
+#    g_type = get_g_type(info)
 #    Symbol(GLib.g_type_name(g_type))
 #end
 
@@ -522,7 +518,7 @@ end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {T}
     # check transfer
-    typ=GI.get_type(arginfo)
+    typ=get_type(arginfo)
 
     if ti.jtype != :Any
         :(convert($(ti.jtype), $name))
