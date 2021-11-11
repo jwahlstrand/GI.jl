@@ -114,8 +114,9 @@ function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],im
     struct_skiplist
 end
 
-function all_struct_methods!(exprs,ns;print_summary=true,skiplist=[], struct_skiplist=[])
+function all_struct_methods!(exprs,ns;print_summary=true,print_detailed=false,skiplist=[], struct_skiplist=[])
     structs=get_structs(ns)
+    handled_symbols=Symbol[]
 
     not_implemented=0
     skipped=0
@@ -127,16 +128,27 @@ function all_struct_methods!(exprs,ns;print_summary=true,skiplist=[], struct_ski
             skipped+=length(methods)
             continue
         end
+        if print_detailed
+            printstyled(name,"\n";bold=true)
+        end
         for m in methods
             if in(get_name(m),skiplist)
                 skipped+=1
                 continue
             end
+            flags = get_flags(m)
+            if flags & (GIFunction.IS_CONSTRUCTOR | GIFunction.IS_METHOD) == 0
+                continue
+            end
             if is_deprecated(m)
                 continue
             end
+            if print_detailed
+                println(get_name(m))
+            end
             fun=create_method(m,get_c_prefix(ns))
             push!(exprs, fun)
+            push!(handled_symbols,get_symbol(m))
             created+=1
         end
     end
@@ -150,6 +162,7 @@ function all_struct_methods!(exprs,ns;print_summary=true,skiplist=[], struct_ski
             printstyled(not_implemented," struct methods not implemented\n";color=:red)
         end
     end
+    handled_symbols
 end
 
 function all_objects!(exprs,exports,ns;print_summary=true,handled=[],skiplist=[])
@@ -276,13 +289,16 @@ function all_interface_methods!(exprs,ns;skiplist=[],interface_skiplist=[])
     end
 end
 
-function all_functions!(exprs,ns;print_summary=true,skiplist=[])
+function all_functions!(exprs,ns;print_summary=true,skiplist=[],symbol_skiplist=[])
     j=0
     skipped=0
     not_implemented=0
     for i in get_all(ns,GIFunctionInfo)
         if in(get_name(i),skiplist) || occursin("cclosure",string(get_name(i)))
             skipped+=1
+            continue
+        end
+        if in(get_symbol(i),symbol_skiplist) # quietly drop methods already handled
             continue
         end
         unsupported = false # whatever we happen to unsupport
