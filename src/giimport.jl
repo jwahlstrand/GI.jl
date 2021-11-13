@@ -165,53 +165,51 @@ function gobject_decl(objectinfo,prefix)
     end
     exprs=Expr[]
     push!(exprs,decl)
-    if !get_abstract(objectinfo)
-        leafname = Symbol(oname,"Leaf")
-        decl=quote
-            mutable struct $leafname <: $oname
-                handle::Ptr{GObject}
-                function $leafname(handle::Ptr{GObject})
-                    if handle == C_NULL
-                        error($("Cannot construct $leafname with a NULL pointer"))
-                    end
-                    return gobject_ref(new(handle))
+    leafname = Symbol(oname,"Leaf")
+    decl=quote
+        mutable struct $leafname <: $oname
+            handle::Ptr{GObject}
+            function $leafname(handle::Ptr{GObject})
+                if handle == C_NULL
+                    error($("Cannot construct $leafname with a NULL pointer"))
                 end
-            end
-            local kwargs, T #to prevent Julia-0.2 from name-mangling kwargs, <: T
-            function $leafname(args...; kwargs...)
-                if isempty(kwargs)
-                    error(MethodError($leafname, args))
-                end
-                w = $leafname(args...)
-                for (kw, val) in kwargs
-                    set_gtk_property!(w, kw, val)
-                end
-                w
-            end
-            gtype_wrapper_cache[$(QuoteNode(oname))] = $leafname
-            function $oname(args...; kwargs...)
-                $leafname(args...; kwargs...)
-            end
-            Base.propertynames(o::$leafname) = $propnames
-            function Base.getproperty(o::$leafname,name::Symbol)
-                d=$rd
-                if in(name,keys(d))
-                    return get_gtk_property(o,name,eval(d[name][1]))
-                else
-                    return getfield(o,name)
-                end
-            end
-            function Base.setproperty!(o::$leafname,name::Symbol,x)
-                d=$wd
-                if in(name,keys(d))
-                    set_gtk_property!(o,name,x)
-                else
-                    setfield!(o,name,x)
-                end
+                return gobject_ref(new(handle))
             end
         end
-        push!(exprs, decl)
+        local kwargs, T #to prevent Julia-0.2 from name-mangling kwargs, <: T
+        function $leafname(args...; kwargs...)
+            if isempty(kwargs)
+                error(MethodError($leafname, args))
+            end
+            w = $leafname(args...)
+            for (kw, val) in kwargs
+                set_gtk_property!(w, kw, val)
+            end
+            w
+        end
+        gtype_wrapper_cache[$(QuoteNode(oname))] = $leafname
+        function $oname(args...; kwargs...)
+            $leafname(args...; kwargs...)
+        end
+        Base.propertynames(o::$leafname) = $propnames
+        function Base.getproperty(o::$leafname,name::Symbol)
+            d=$rd
+            if in(name,keys(d))
+                return get_gtk_property(o,name,eval(d[name][1]))
+            else
+                return getfield(o,name)
+            end
+        end
+        function Base.setproperty!(o::$leafname,name::Symbol,x)
+            d=$wd
+            if in(name,keys(d))
+                set_gtk_property!(o,name,x)
+            else
+                setfield!(o,name,x)
+            end
+        end
     end
+    push!(exprs, decl)
     exprs
 end
 
@@ -338,30 +336,40 @@ function extract_type(typeinfo::GITypeInfo,info::Type{GICArray})
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T<:Type{GICArray}}
     if typeof(arginfo)==GIFunctionInfo
-        rettypeinfo=get_return_type(arginfo)
+        argtypeinfo=get_return_type(arginfo)
     else
-        return nothing
+        argtypeinfo=get_type(arginfo)
     end
-    elm = get_param_type(rettypeinfo,0)
+    elm = get_param_type(argtypeinfo,0)
     elmtype = extract_type(elm)
     elmctype=elmtype.ctype
-    arrlen=get_array_length(rettypeinfo)
+    arrlen=get_array_length(argtypeinfo)
     lensymb=nothing
     if arrlen != -1
-      args=get_args(arginfo)
-      lenname=get_name(args[arrlen+1])
-      lensymb=Symbol(:m_,lenname)
+        if typeof(arginfo)==GIFunctionInfo
+            args=get_args(arginfo)
+        else
+            func=get_container(arginfo)
+            args=get_args(func)
+        end
+        lenname=get_name(args[arrlen+1])
+        lensymb=Symbol(:m_,lenname)
     end
 
-    if is_zero_terminated(rettypeinfo) && get_caller_owns(arginfo)==GITransfer.EVERYTHING
+    owns = typeof(arginfo)==GIFunctionInfo ? get_caller_owns(arginfo) : get_ownership_transfer(arginfo)
+    if is_zero_terminated(argtypeinfo) && owns==GITransfer.EVERYTHING
         if elmctype == :(Ptr{UInt8})
             :(_len=length_zt($name);ret2=bytestring.(unsafe_wrap(Vector{$elmctype}, $name,_len));GLib.g_strfreev($name);ret2)
         else
             return nothing
             #:(_len=length_zt($name);ret2=copy(unsafe_wrap(Vector{$elmctype}, $name,i-1));GLib.g_free($name);ret2)
         end
-    elseif get_caller_owns(arginfo)==GITransfer.CONTAINER && lensymb != nothing
-        :(ret2=copy(unsafe_wrap(Vector{$elmctype}, $name,$lensymb[]));GLib.g_free($name);ret2)
+    elseif owns==GITransfer.CONTAINER && lensymb != nothing
+        if elmtype.gitype == GObject
+            :(ret2=copy(unsafe_wrap(Vector{$elmctype}, $name,$lensymb[]));GLib.g_free($name);ret2=convert.($(elmtype.jtype), ret2, false))
+        else
+            :(ret2=copy(unsafe_wrap(Vector{$elmctype}, $name,$lensymb[]));GLib.g_free($name);ret2)
+        end
     else
         #throw(NotImplementedError)
         return nothing
@@ -392,6 +400,15 @@ end
 
 function extract_type(typeinfo::GITypeInfo,info::Type{GByteArray})
     TypeDesc{Type{GByteArray}}(GByteArray,:Any, :GByteArray, :(Ptr{GByteArray}))
+end
+
+function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GByteArray}}
+    owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
+    if may_be_null(arginfo)
+        :(($name == C_NULL ? nothing : convert($(typeinfo.jtype), $name, $owns)))
+    else
+        :(convert(GByteArray, $name, $owns))
+    end
 end
 
 function extract_type(typeinfo::GITypeInfo,listtype::Type{T}) where {T<:GLib._LList}
@@ -556,6 +573,12 @@ function symbol_from_lib(libname)
         return :libgio
     elseif occursin("libcairo-gobject",libname)
         return :libcairo_gobject
+    elseif occursin("libpangocairo",libname)
+        return :libpangocairo
+    elseif occursin("libpangoft",libname)
+        return :libpangoft
+    elseif occursin("libpango",libname)
+        return :libpango
     elseif occursin("libatk",libname)
         return :libatk
     elseif occursin("libgdkpixbuf",libname)
@@ -667,11 +690,24 @@ function create_method(info::GIFunctionInfo,prefix)
         if typ.gitype == GICArray && arrlen >= 0
             len_name=Symbol("_",get_name(args[arrlen+1]))
             len_i=findfirst(a->(a.name === len_name),jargs)
-            if len_i === nothing
-                continue
+            if len_i !== nothing
+                deleteat!(jargs,len_i)
+                push!(prologue, :($len_name = length($aname)))
             end
-            deleteat!(jargs,len_i)
-            push!(prologue, :($len_name = length($aname)))
+            len_i=findfirst(a->(a===len_name),retvals)
+            if len_i !==nothing
+                deleteat!(retvals,len_i)
+            end
+        end
+    end
+    if rettype.gitype == GICArray
+        arrlen=get_array_length(rettypeinfo)
+        if arrlen >=0
+            len_name=Symbol("_",get_name(args[arrlen+1]))
+            len_i=findfirst(a->(a===len_name),retvals)
+            if len_i !==nothing
+                deleteat!(retvals,len_i)
+            end
         end
     end
 
