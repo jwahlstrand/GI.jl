@@ -63,11 +63,10 @@ function struct_decl(structinfo,prefix;force_opaque=false)
                 #println("constructing ",$(QuoteNode(gstructname)), " ",own)
                 x = new(ref)
                 if own
-                    finalizer(x::$gstructname->begin
-                        gtype = ccall((($(QuoteNode(type_init))), $slib),GType, ())
-                        ccall((:g_boxed_free, libgobject), Nothing, (GType, Ptr{$gstructname},), gtype, x.handle)
+                    finalizer(x) do x
+                        GLib.delboxed(x)
                         #@async println("finalized ",$gstructname)
-                    end, x)
+                    end
                 end
                 x
             end
@@ -78,6 +77,8 @@ function struct_decl(structinfo,prefix;force_opaque=false)
             end
         end
     end
+    ustruc=nothing
+    fieldgetter=nothing
     if length(fields)>0 && !force_opaque
         fieldsexpr=Expr[]
         for field in fields
@@ -85,23 +86,39 @@ function struct_decl(structinfo,prefix;force_opaque=false)
             type1=extract_type(field).ctype
             push!(fieldsexpr,:($field1::$type1))
         end
-        struc=quote
-            struct $decl
+        ustructname=Symbol("_",gstructname)
+        ustruc=quote
+            struct $ustructname
                 $(fieldsexpr...)
             end
         end
-    elseif isboxed
+        fieldgetter=quote
+            function Base.getproperty(s::$gstructname,sym::Symbol)
+                if sym===:handle
+                    return getfield(s,:handle)
+                elseif in(sym,fieldnames($ustructname))
+                    u=unsafe_load(Ptr{$ustructname}(s.handle))
+                    return getfield(u,sym)
+                end
+            end
+        end
+    end
+    if isboxed
         struc=quote
+            $ustruc
             mutable struct $decl
                 handle::Ptr{$gstructname}
                 $fin
             end
+            $fieldgetter
         end
     else
         struc=quote
+            $ustruc
             mutable struct $decl
                 handle::Ptr{$gstructname}
             end
+            $fieldgetter
         end
     end
     struc
@@ -661,6 +678,18 @@ function create_method(info::GIFunctionInfo,prefix)
         else
             ctype = typ.ctype
             wname = Symbol("m_$(get_name(arg))")
+            atyp = get_type(arg)
+            # If this is a struct, we need use the underscored version, which
+            # has the fields. FIXME: this is a problem for structs using "force opaque"
+            if TAG_INTERFACE == get_tag(atyp)
+                structinfo = get_interface(atyp)
+                if isa(structinfo,GIStructInfo)
+                    fields=get_fields(structinfo)
+                    if length(fields)>0
+                        ctype = Symbol("_",ctype)
+                    end
+                end
+            end
             push!(prologue, :( $wname = mutable($ctype) ))
             if dir == GIDirection.INOUT
                 push!(prologue, :( $wname[] = Base.cconvert($ctype,$aname) ))

@@ -365,3 +365,9 @@ function gobject_move_ref(new::GObject, old::GObject)
     gc_unref(h)
     new
 end
+
+function delboxed(x::GBoxed)
+    T=typeof(x)
+    gtype = g_type(T)
+    ccall((:g_boxed_free, libgobject), Nothing, (GType, Ptr{GBoxed},), gtype, x.handle)
+end
