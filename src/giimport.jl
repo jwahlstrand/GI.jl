@@ -683,7 +683,7 @@ function create_method(info::GIFunctionInfo,prefix)
             # has the fields. FIXME: this is a problem for structs using "force opaque"
             if TAG_INTERFACE == get_tag(atyp)
                 structinfo = get_interface(atyp)
-                if isa(structinfo,GIStructInfo)
+                if isa(structinfo,GIStructInfo) && ctype.args[1] !== :Ptr
                     fields=get_fields(structinfo)
                     if length(fields)>0
                         ctype = Symbol("_",ctype)
