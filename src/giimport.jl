@@ -124,24 +124,19 @@ function struct_decl(structinfo,prefix;force_opaque=false)
     struc
 end
 
-function obj_decl!(exprs,o,ns,handled)
-    if in(get_name(o),handled)
-        return
-    end
-    p=get_parent(o)
-    if p!==nothing && !in(get_name(p),handled) && get_namespace(o) == get_namespace(p)
-        obj_decl!(exprs,p,ns,handled)
-    end
-    append!(exprs,gobject_decl(o,get_c_prefix(ns)))
-    push!(handled,get_name(o))
-end
+## GObject output
 
+# extract properties for a particular GObject type
 function prop_dict(info)
     properties=get_properties(info)
     d=Dict{Symbol,Tuple{Any,Int32,Int32}}()
     for p in properties
+        # whether the property is readable, writable, other stuff
         flags=get_flags(p)
+
+        # in practice it looks like this is never set to anything but TRANSFER_NONE, so we could omit it
         tran=get_ownership_transfer(p)
+
         typ=get_type(p)
         btyp=get_base_type(typ)
         ptyp=extract_type(typ,btyp)
@@ -151,6 +146,7 @@ function prop_dict(info)
     d
 end
 
+# extract properties for a particular GObject type and all its parents
 function prop_dict_incl_parents(objectinfo::GIObjectInfo)
     d=prop_dict(objectinfo)
     parentinfo=get_parent(objectinfo)
@@ -161,13 +157,28 @@ function prop_dict_incl_parents(objectinfo::GIObjectInfo)
     end
 end
 
+# For each GObject type GMyObject, we output:
+# * an abstract type "GMyObject"
+# * a leaf type "GMyObjectLeaf" that has a handle to the C pointer and a
+#   constructor that takes a C pointer
+# * a constructor for the leaf type that takes key word arguments, for
+#   constructing an object with particular property values
+# * a key word constructor for the abstract type that calls the constructor just
+#   mentioned
+# * an expression adding this object to the GObject wrapper cache
+# * if there are properties, we construct a dictionary of the properties of this
+#   type and its interfaces with information
+
 function gobject_decl(objectinfo,prefix)
     g_type = get_g_type(objectinfo)
     oname = Symbol(GLib.g_type_name(g_type))
+    leafname = Symbol(oname,"Leaf")
     parentinfo = get_parent(objectinfo)
     pg_type = get_g_type(parentinfo)
     pname = Symbol(GI.GLib.g_type_name(pg_type))
-    d=prop_dict(objectinfo)
+
+    # property info
+    d=prop_dict_incl_parents(objectinfo)
     for i in get_interfaces(objectinfo)
         di=prop_dict(i)
         d=merge(di,d)
@@ -177,12 +188,35 @@ function gobject_decl(objectinfo,prefix)
     rd=filter((p->p.second[3] & READABLE!=0),d)
     wd=filter((p->p.second[3] & WRITABLE!=0),d)
     propnames=vcat([:handle],collect(keys(d)))
+    propexprs=Expr[]
+    if length(d)>0
+        propexpr=quote
+            Base.propertynames(o::$leafname) = $propnames
+            function Base.getproperty(o::$leafname,name::Symbol)
+                d=$rd
+                if in(name,keys(d))
+                    return get_gtk_property(o,name,eval(d[name][1]))
+                else
+                    return getfield(o,name)
+                end
+            end
+            function Base.setproperty!(o::$leafname,name::Symbol,x)
+                d=$wd
+                if in(name,keys(d))
+                    set_gtk_property!(o,name,x)
+                else
+                    setfield!(o,name,x)
+                end
+            end
+        end
+        push!(propexprs,propexpr)
+    end
+
     decl=quote
         abstract type $oname <: $pname end
     end
     exprs=Expr[]
     push!(exprs,decl)
-    leafname = Symbol(oname,"Leaf")
     decl=quote
         mutable struct $leafname <: $oname
             handle::Ptr{GObject}
@@ -193,7 +227,7 @@ function gobject_decl(objectinfo,prefix)
                 return gobject_ref(new(handle))
             end
         end
-        local kwargs, T #to prevent Julia-0.2 from name-mangling kwargs, <: T
+        local kwargs
         function $leafname(args...; kwargs...)
             if isempty(kwargs)
                 error(MethodError($leafname, args))
@@ -208,26 +242,23 @@ function gobject_decl(objectinfo,prefix)
         function $oname(args...; kwargs...)
             $leafname(args...; kwargs...)
         end
-        Base.propertynames(o::$leafname) = $propnames
-        function Base.getproperty(o::$leafname,name::Symbol)
-            d=$rd
-            if in(name,keys(d))
-                return get_gtk_property(o,name,eval(d[name][1]))
-            else
-                return getfield(o,name)
-            end
-        end
-        function Base.setproperty!(o::$leafname,name::Symbol,x)
-            d=$wd
-            if in(name,keys(d))
-                set_gtk_property!(o,name,x)
-            else
-                setfield!(o,name,x)
-            end
-        end
+        $(propexprs...)
     end
     push!(exprs, decl)
     exprs
+end
+
+# For an ObjectInfo, output GObject stuff, including parent types
+function obj_decl!(exprs,o,ns,handled)
+    if in(get_name(o),handled)
+        return
+    end
+    p=get_parent(o)
+    if p!==nothing && !in(get_name(p),handled) && get_namespace(o) == get_namespace(p)
+        obj_decl!(exprs,p,ns,handled)
+    end
+    append!(exprs,gobject_decl(o,get_c_prefix(ns)))
+    push!(handled,get_name(o))
 end
 
 function ginterface_decl(interfaceinfo,prefix)
@@ -683,10 +714,12 @@ function create_method(info::GIFunctionInfo,prefix)
             # has the fields. FIXME: this is a problem for structs using "force opaque"
             if TAG_INTERFACE == get_tag(atyp)
                 structinfo = get_interface(atyp)
-                if isa(structinfo,GIStructInfo) && ctype.args[1] !== :Ptr
-                    fields=get_fields(structinfo)
-                    if length(fields)>0
-                        ctype = Symbol("_",ctype)
+                if isa(structinfo,GIStructInfo)
+                    if isa(ctype,Symbol) || (isa(ctype,Expr) && ctype.args[1] !== :Ptr)
+                        fields=get_fields(structinfo)
+                        if length(fields)>0
+                            ctype = Symbol("_",ctype)
+                        end
                     end
                 end
             end

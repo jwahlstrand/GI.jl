@@ -1,5 +1,7 @@
 module GLib
 
+# This is a local copy of GLib -- ideally we would use GLib.jl
+
 if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
     @eval Base.Experimental.@optlevel 1
 end
@@ -42,15 +44,15 @@ bytestring(s::Ptr{UInt8}) = unsafe_string(s)
 g_malloc(s::Integer) = ccall((:g_malloc, libglib), Ptr{Nothing}, (Csize_t,), s)
 g_free(p::Ptr) = ccall((:g_free, libglib), Nothing, (Ptr{Nothing},), p)
 
-include("../../libs/MutableTypes.jl")
+include("MutableTypes.jl")
 using .MutableTypes
-include("../../libs/glist.jl")
-include("../../libs/gvariant.jl")
-include("../../libs/gtype.jl")
-include("../../libs/hashtable.jl")
-include("../../libs/arrays.jl")
-include("../../libs/gvalues.jl")
-include("../../libs/gerror.jl")
+include("glist.jl")
+include("gvariant.jl")
+include("gtype.jl")
+include("hashtable.jl")
+include("arrays.jl")
+include("gvalues.jl")
+include("gerror.jl")
 
 export @g_type_delegate
 macro g_type_delegate(eq)

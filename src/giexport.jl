@@ -165,7 +165,7 @@ function all_struct_methods!(exprs,ns;print_summary=true,print_detailed=false,sk
     handled_symbols
 end
 
-function all_objects!(exprs,exports,ns;print_summary=true,handled=[],skiplist=[])
+function all_objects!(exprs,exports,ns;print_summary=true,handled=[],skiplist=[],output_cache_init=true)
     objects=get_all(ns,GIObjectInfo)
 
     imported=length(objects)
@@ -192,11 +192,12 @@ function all_objects!(exprs,exports,ns;print_summary=true,handled=[],skiplist=[]
         obj_decl!(exprs,o,ns,handled)
         push!(exports.args, full_name(o,get_c_prefix(ns)))
     end
-    gtype_cache_init = quote
-        gtype_wrapper_cache_init() = merge!(GLib.gtype_wrappers,gtype_wrapper_cache)
+    if output_cache_init
+        gtype_cache_init = quote
+            gtype_wrapper_cache_init() = merge!(GLib.gtype_wrappers,gtype_wrapper_cache)
+        end
+        push!(exprs,gtype_cache_init)
     end
-    push!(exprs,gtype_cache_init)
-
     if print_summary
         printstyled("Created ",imported," objects out of ",length(objects),"\n";color=:green)
     end
