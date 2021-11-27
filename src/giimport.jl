@@ -75,6 +75,14 @@ function struct_decl(structinfo,prefix;force_opaque=false)
                 ccall((:g_value_init, libgobject), Nothing, (Ptr{GValue}, Csize_t), v, gtype)
                 v
             end
+            function Base.getindex(v::GLib.GV, ::Type{T}) where T <: $gstructname
+                x = ccall((:g_value_get_boxed, libgobject), Ptr{$gstructname}, (Ptr{GValue},), v)
+                if x == C_NULL
+                    return nothing
+                end
+                return $gstructname(x)
+            end
+            push!(gboxed_types,$gstructname)
         end
     end
     ustruc=nothing

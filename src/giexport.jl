@@ -43,6 +43,13 @@ function all_const_exprs(ns;print_summary=true)
     const_mod
 end
 
+function struct_cache_expr!(exprs)
+    gboxed_types_list = quote
+        gboxed_types = Any[]
+    end
+    push!(exprs,gboxed_types_list)
+end
+
 function struct_exprs!(exprs,exports,ns,structs;print_summary=true,excludelist=[],import_as_opaque=[])
     struct_skiplist=excludelist
 
@@ -81,7 +88,7 @@ function struct_exprs!(exprs,exports,ns,structs;print_summary=true,excludelist=[
     struct_skiplist
 end
 
-function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],import_as_opaque=[])
+function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],import_as_opaque=[],output_cache_init=true)
     struct_skiplist=excludelist
 
     s=get_all(ns,GIStructInfo)
@@ -105,6 +112,13 @@ function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],im
         name = Symbol("$name")
         push!(exprs, struct_decl(ssi,get_c_prefix(ns);force_opaque=in(name,import_as_opaque)))
         push!(exports.args, full_name(ssi,get_c_prefix(ns)))
+    end
+
+    if output_cache_init
+        gboxed_types_init = quote
+            gboxed_cache_init() = append!(GLib.gboxed_types,gboxed_types)
+        end
+        push!(exprs,gboxed_types_init)
     end
 
     if print_summary

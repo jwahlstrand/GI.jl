@@ -24,7 +24,7 @@ whether pointer arguments can be optionally NULL, whether list outputs are
 NULL-terminated, which argument corresponds to the length of array inputs, etc.
 
 Note that the way GObjects and GBoxed types are handled currently is not
-compatible with Gtk.jl.
+compatible with [Gtk.jl](https://github.com/JuliaGraphics/Gtk.jl).
 
 Parts that are still very rough:
 
@@ -56,8 +56,8 @@ GObject and GInterface types are named as in Gtk.jl, with the namespace
 included. So for example we use Pango.PangoLayout rather than Pango.Layout.
 
 Properties are exported as Julia properties and can be accessed and set using
-my_object.property_name. Alternatively the Gtk.jl functions get_gtk_property or
-set_gtk_property! can be used.
+my_object.property_name. Alternatively the functions get_gtk_property or
+set_gtk_property! can be used, like in Gtk.jl.
 
 ### Methods
 
@@ -66,8 +66,14 @@ and the object/interface/struct name. So for example pango_layout_get_extents
 becomes get_extents. Functions not associated with particular objects, interfaces, or structs are
 exported with the namespace removed.
 
-Arguments of C functions that are outputs are converted to outputs. When there
-is a return value and argument outputs, the Julia method returns a tuple of the
+Arguments of C functions that are outputs are converted to returned outputs. When there
+is a return value as well as argument outputs, the Julia method returns a tuple of the
 outputs. For array inputs, the length parameter in the C function is removed for
 Julia methods. Similarly, for array outputs, a length parameter output is
-omitted in the Julia output.
+omitted in the Julia output. GError outputs are converted to throws. When pointer
+inputs can optionally be NULL, the Julia methods accept nothing as the argument.
+When outputs are NULL, the Julia methods output nothing.
+
+### Callbacks
+
+Currently totally broken.

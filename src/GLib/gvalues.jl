@@ -48,89 +48,11 @@ getindex(gv::GV, i::Int, ::Type{T}) where {T} = getindex(mutable(gv, i), T)
 getindex(gv::GV, i::Int) = getindex(mutable(gv, i))
 getindex(v::GV, i::Int, ::Type{Nothing}) = nothing
 
-
-let handled = Set()
-global make_gvalue, getindex
-function make_gvalue(pass_x, as_ctype, to_gtype, with_id, cm::Module, allow_reverse::Bool = true, fundamental::Bool = false)
-    with_id === :error && return
-    if isa(with_id, Tuple)
-        with_id = with_id::Tuple{Symbol, Any}
-        with_id = :(ccall($(Expr(:tuple, Meta.quot(Symbol(string(with_id[1], "_get_type"))), with_id[2])), GType, ()))
-    end
-    # with_id is now the GType
-    if pass_x !== Union{} && !(pass_x in handled)  # define GValue setters
-        Core.eval(cm, quote
-            function Base.setindex!(v::GLib.GV, ::Type{T}) where T <: $pass_x
-                ccall((:g_value_init, GLib.libgobject), Nothing, (Ptr{GLib.GValue}, Csize_t), v, $with_id)
-                v
-            end
-            function Base.setindex!(v::GLib.GV, x, ::Type{T}) where T <: $pass_x
-                $(  if to_gtype == :string
-                        :(x = GLib.bytestring(x))
-                    elseif to_gtype == :pointer || to_gtype == :boxed
-                        :(x = GLib.mutable(x))
-                    elseif to_gtype == :gtype
-                        :(x = GLib.g_type(x))
-                    end)
-                ccall(($(string("g_value_set_", to_gtype)), GLib.libgobject), Nothing, (Ptr{GLib.GValue}, $as_ctype), v, x)
-                if isa(v, GLib.MutableTypes.MutableX)
-                    finalizer((v::GLib.MutableTypes.MutableX) -> ccall((:g_value_unset, GLib.libgobject), Nothing, (Ptr{GLib.GValue},), v), v)
-                end
-                v
-            end
-        end)
-    end
-    if to_gtype == :static_string
-        to_gtype = :string
-    end
-    if pass_x !== Union{} && !(pass_x in handled)  # define default GValue getter
-        push!(handled, pass_x)
-        Core.eval(cm, quote
-            function Base.getindex(v::GLib.GV, ::Type{T}) where T <: $pass_x
-                x = ccall(($(string("g_value_get_", to_gtype)), GLib.libgobject), $as_ctype, (Ptr{GLib.GValue},), v)
-                $(  if to_gtype == :string
-                        :(x = GLib.bytestring(x))
-                    elseif pass_x == Symbol
-                        :(x = Symbol(x))
-                    end)
-                return Base.convert(T, x)
-            end
-        end)
-    end
-    if fundamental || allow_reverse
-        fn = Core.eval(cm, quote
-            function(v::GLib.GV)
-                x = ccall(($(string("g_value_get_", to_gtype)), GLib.libgobject), $as_ctype, (Ptr{GLib.GValue},), v)
-                $(if to_gtype == :string; :(x = GLib.bytestring(x)) end)
-                $(if pass_x !== Union{}
-                    :(return Base.convert($pass_x, x))
-                else
-                    :(return x)
-                end)
-            end
-        end)
-        allow_reverse && pushfirst!(gvalue_types, [pass_x, Core.eval(cm, :(() -> $with_id)), fn])
-        return fn
-    end
-    return nothing
-end
-end #let
-
 macro make_gvalue(pass_x, as_ctype, to_gtype, with_id, opt...)
     esc(:(make_gvalue($pass_x, $as_ctype, $to_gtype, $with_id, $__module__, $(opt...))))
 end
 
-function make_gvalue_from_fundamental_type(i,cm)
-  (name, ctype, juliatype, g_value_fn) = fundamental_types[i]
-  return make_gvalue(juliatype, ctype, g_value_fn, fundamental_ids[i], cm, false, true)
-end
-
-const gvalue_types = Any[]
-const fundamental_fns = tuple(Function[ make_gvalue_from_fundamental_type(i, @__MODULE__) for
-                              i in 1:length(fundamental_types)]...)
-@make_gvalue(Symbol, Ptr{UInt8}, :static_string, :(g_type(AbstractString)), false)
-@make_gvalue(Type, GType, :gtype, (:g_gtype, :libgobject))
-@make_gvalue(Ptr{GBoxed}, Ptr{GBoxed}, :gboxed, :(g_type(GBoxed)), false)
+const gboxed_types = Any[]
 
 function getindex(gv::GV, ::Type{Any})
     gtyp = unsafe_load(gv).g_type
@@ -146,7 +68,13 @@ function getindex(gv::GV, ::Type{Any})
             return fundamental_fns[i](gv)
         end
     end
-    # second pass: user defined (sub)types
+    # second pass: GBoxed types
+    for typ in subtypes(GBoxed)
+        if gtyp == g_type(typ)
+            return getindex(gv,typ)
+        end
+    end
+    # third pass: user defined (sub)types
     for (typ, typefn, getfn) in gvalue_types
         if g_isa(gtyp, typefn())
             return getfn(gv)
