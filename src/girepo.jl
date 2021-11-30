@@ -466,7 +466,7 @@ function get_value(info::GIConstantInfo)
     elseif typ <: Number # backup
         get_constant_value(Int64,info)
     elseif typ == String
-        x = Array{Cstring,1}(undef,1) #or mutable
+        x = Array{Cstring,1}(undef,1)
         size = ccall((:g_constant_info_get_value,libgi),Cint,(Ptr{GIBaseInfo}, Ptr{Cstring}), info, x)
 
         val = unsafe_string(x[1])

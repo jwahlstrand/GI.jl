@@ -70,12 +70,12 @@ function struct_decl(structinfo,prefix;force_opaque=false)
                 end
                 x
             end
-            function Base.setindex!(v::GLib.GV, ::Type{T}) where T <: $gstructname
+            function Base.setindex!(v::Base.RefValue{GValue}, ::Type{T}) where T <: $gstructname
                 gtype = ccall((($(QuoteNode(type_init))), $slib),GType, ())
                 ccall((:g_value_init, libgobject), Nothing, (Ptr{GValue}, Csize_t), v, gtype)
                 v
             end
-            function Base.getindex(v::GLib.GV, ::Type{T}) where T <: $gstructname
+            function Base.getindex(v::Base.RefValue{GValue}, ::Type{T}) where T <: $gstructname
                 x = ccall((:g_value_get_boxed, libgobject), Ptr{$gstructname}, (Ptr{GValue},), v)
                 if x == C_NULL
                     return nothing
@@ -731,7 +731,7 @@ function create_method(info::GIFunctionInfo,prefix)
                     end
                 end
             end
-            push!(prologue, :( $wname = mutable($ctype) ))
+            push!(prologue, :( $wname = Ref{$ctype}() ))
             if dir == GIDirection.INOUT
                 push!(prologue, :( $wname[] = Base.cconvert($ctype,$aname) ))
             end

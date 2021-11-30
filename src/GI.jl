@@ -4,7 +4,6 @@ module GI
 
     include("GLib/GLib.jl")
     using .GLib
-    using .GLib.MutableTypes
     import .GLib: libgobject, libglib, bytestring
     import .GLib:
       unsafe_convert,
