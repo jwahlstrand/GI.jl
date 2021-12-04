@@ -59,7 +59,7 @@ function struct_decl(structinfo,prefix;force_opaque=false)
         fin = quote
             GLib.g_type(::Type{T}) where {T <: $gstructname} =
                       ccall(($type_init, $slib), GType, ())
-            function $gstructname(ref::Ptr{$gstructname}, own::Bool = false)
+            function $gstructname(ref::Ptr{T}, own::Bool = false) where T<:GBoxed
                 #println("constructing ",$(QuoteNode(gstructname)), " ",own)
                 x = new(ref)
                 if own
@@ -69,18 +69,6 @@ function struct_decl(structinfo,prefix;force_opaque=false)
                     end
                 end
                 x
-            end
-            function Base.setindex!(v::Base.RefValue{GValue}, ::Type{T}) where T <: $gstructname
-                gtype = ccall((($(QuoteNode(type_init))), $slib),GType, ())
-                ccall((:g_value_init, libgobject), Nothing, (Ptr{GValue}, Csize_t), v, gtype)
-                v
-            end
-            function Base.getindex(v::Base.RefValue{GValue}, ::Type{T}) where T <: $gstructname
-                x = ccall((:g_value_get_boxed, libgobject), Ptr{$gstructname}, (Ptr{GValue},), v)
-                if x == C_NULL
-                    return nothing
-                end
-                return $gstructname(x)
             end
             push!(gboxed_types,$gstructname)
         end
@@ -159,7 +147,7 @@ function prop_dict_incl_parents(objectinfo::GIObjectInfo)
     d=prop_dict(objectinfo)
     parentinfo=get_parent(objectinfo)
     if parentinfo!==nothing
-        return merge(prop_dict(parentinfo),d)
+        return merge(prop_dict_incl_parents(parentinfo),d)
     else
         return d
     end
