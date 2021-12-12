@@ -29,7 +29,7 @@ convert(::Type{Ptr{GIBaseInfo}},w::GIInfo) = w.handle
 unsafe_convert(::Type{Ptr{GIBaseInfo}},w::GIInfo) = w.handle
 #convert(::Type{GIBaseInfo},w::GIInfo) = w.handle
 
-const GIInfoTypesShortNames = (:Invalid, :Function, :Callback, :Struct, :Boxed, :EnumGI,
+const GIInfoTypesShortNames = (:Invalid, :Function, :Callback, :Struct, :Boxed, :Enum,
                                :Flags, :Object, :Interface, :Constant, :Unknown, :Union,
                                :Value, :Signal, :VFunc, :Property, :Field, :Arg, :Type, :Unresolved)
 
@@ -47,8 +47,8 @@ for (i,itype) in enumerate(GIInfoTypesShortNames)
 end
 
 const GICallableInfo = Union{GIFunctionInfo,GIVFuncInfo, GICallbackInfo, GISignalInfo}
-const GIEnumGIOrFlags = Union{GIEnumGIInfo,GIFlagsInfo}
-const GIRegisteredTypeInfo = Union{GIEnumGIOrFlags,GIInterfaceInfo, GIObjectInfo, GIStructInfo, GIUnionInfo}
+const GIEnumOrFlags = Union{GIEnumInfo,GIFlagsInfo}
+const GIRegisteredTypeInfo = Union{GIEnumOrFlags,GIInterfaceInfo, GIObjectInfo, GIStructInfo, GIUnionInfo}
 
 show(io::IO, ::Type{GIInfo{Typeid}}) where Typeid = print(io, GIInfoTypeNames[Typeid+1])
 
@@ -208,7 +208,7 @@ GIInfoTypes[:method] = GIFunctionInfo
 GIInfoTypes[:callable] = GICallableInfo
 GIInfoTypes[:registered_type] = GIRegisteredTypeInfo
 GIInfoTypes[:base] = GIInfo
-GIInfoTypes[:enum] = GIEnumGIOrFlags
+GIInfoTypes[:enum] = GIEnumOrFlags
 
 Maybe(T) = Union{T,Nothing}
 
@@ -296,9 +296,6 @@ get_param_type(info::GITypeInfo,n) = rconvert(MaybeGIInfo, ccall(("g_type_info_g
 const ArgInfo = Union{GIArgInfo,GICallableInfo}
 get_ownership_transfer(ai::GICallableInfo) = get_caller_owns(ai)
 may_be_null(ai::GICallableInfo) = may_return_null(ai)
-#get_type(ai::GICallableInfo) = get_return_type(ai)
-
-qual_name(info::GIRegisteredTypeInfo) = (get_namespace(info),get_name(info))
 
 for (owner,flag) in [
     (:type, :is_pointer), (:callable, :may_return_null), (:callable, :skip_return),
@@ -347,6 +344,11 @@ const GI_ARRAY_TYPE_PTR_ARRAY = 2
 const GI_ARRAY_TYPE_BYTE_ARRAY =3
 const GICArray = GIArrayType{GI_ARRAY_TYPE_C}
 
+function get_full_name(info)
+    ns=get_namespace(info)
+    Symbol(get_c_prefix(ns),string(get_name(info)))
+end
+
 """Get the Julia type corresponding to a GITypeInfo. Not necessarily the actual
 type but a base type."""
 get_base_type(info::GIConstantInfo) = get_base_type(get_type(info))
@@ -360,18 +362,17 @@ function get_base_type(info::GITypeInfo)
         # docs say "inspect the type of the returned BaseInfo to further query whether it is a concrete GObject, a GInterface, a structure, etc."
         typ=GIInfoTypeNames[get_type(interf_info)+1]
         if typ===:GIStructInfo
-            ns=get_namespace(interf_info)
-            prefix=get_c_prefix(ns)
             gtyp=get_g_type(interf_info)
             boxed_gtype = GLib.g_type_from_name(:GBoxed)
             if GLib.g_isa(gtyp,boxed_gtype)
                 return GBoxed
             else
                 # we don't have a type defined so return the name
-                return Symbol(prefix,string(get_name(interf_info)))
+                return get_full_name(interf_info)
             end
-        elseif typ===:GIEnumGIInfo
-            return Int32 # TODO: get the storage type using GI
+        elseif typ===:GIEnumInfo
+            storage_typ = typetag_primitive[get_storage_type(interf_info)]
+            return Enum{storage_typ}
         elseif typ===:GIFlagsInfo
             return Int32 # TODO: get the storage type using GI
         elseif typ===:GICallbackInfo
@@ -493,7 +494,7 @@ function get_consts(gns,exclude_deprecated=true)
     consts
 end
 
-function get_enum_values(info::GIEnumGIOrFlags)
+function get_enum_values(info::GIEnumOrFlags)
     [(get_name(i),get_value(i)) for i in get_values(info)]
 end
 

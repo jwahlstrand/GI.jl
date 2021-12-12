@@ -25,8 +25,41 @@ function enum_decl(enum)
     Expr(:toplevel,Expr(:module, false, Symbol(enumname), body))
 end
 
+enum_fullname(enumname,name) = Symbol(enumname,"_",uppercase(name))
+
+function enum_decl2(enum)
+    enumname=get_name(enum)
+    vals = get_enum_values(enum)
+    typ = typetag_primitive[get_storage_type(enum)]
+    body = Expr(:macrocall)
+    push!(body.args, Symbol("@enum"))
+    push!(body.args, Symbol("nothing"))
+    push!(body.args, :($enumname::$typ))
+    occurred=[]
+    dups=[]
+    for (name,val) in vals
+        if val in occurred
+            push!(dups,name)
+            continue
+        end
+        push!(occurred,val)
+        val=unsafe_trunc(typ,val)  # sometimes the value returned by GI is outside the range of the enum's type
+        fullname=enum_fullname(enumname,name)
+        push!(body.args, :($fullname = $val) )
+    end
+    bloc = Expr(:block)
+    push!(bloc.args,body)
+    for (name,val) in vals
+        if name in dups
+            fullname=enum_fullname(enumname,name)
+            push!(bloc.args,:(const $fullname = $enumname($val)))
+        end
+    end
+    bloc
+end
+
 function enum_decls(ns)
-    enums = get_all(ns, GIEnumGIOrFlags)
+    enums = get_all(ns, GIEnumOrFlags)
     typedefs = Expr[]
     aliases = Expr[]
     for enum in enums
@@ -39,15 +72,9 @@ function enum_decls(ns)
 end
 enum_name(enum) = Symbol(string(get_namespace(enum),get_name(enum)))
 
-function full_name(info,prefix)
-    name=get_name(info)
-    Symbol(prefix,name)
-end
-
-function struct_decl(structinfo,prefix;force_opaque=false)
-    structname=get_name(structinfo)
+function struct_decl(structinfo;force_opaque=false)
     fields=get_fields(structinfo)
-    gstructname = Symbol(prefix,structname)
+    gstructname = get_full_name(structinfo)
     gtype=get_g_type(structinfo)
     isboxed = GLib.g_isa(gtype,GLib.g_type_from_name(:GBoxed))
     decl = isboxed ? :($gstructname <: GBoxed) : gstructname
@@ -165,7 +192,7 @@ end
 # * if there are properties, we construct a dictionary of the properties of this
 #   type and its interfaces with information
 
-function gobject_decl(objectinfo,prefix)
+function gobject_decl(objectinfo)
     g_type = get_g_type(objectinfo)
     oname = Symbol(GLib.g_type_name(g_type))
     leafname = Symbol(oname,"Leaf")
@@ -253,11 +280,11 @@ function obj_decl!(exprs,o,ns,handled)
     if p!==nothing && !in(get_name(p),handled) && get_namespace(o) == get_namespace(p)
         obj_decl!(exprs,p,ns,handled)
     end
-    append!(exprs,gobject_decl(o,get_c_prefix(ns)))
+    append!(exprs,gobject_decl(o))
     push!(handled,get_name(o))
 end
 
-function ginterface_decl(interfaceinfo,prefix)
+function ginterface_decl(interfaceinfo)
     g_type = get_g_type(interfaceinfo)
     iname = Symbol(GLib.g_type_name(g_type))
     decl=quote
@@ -360,11 +387,18 @@ function extract_type(typeinfo::TypeInfo, info::GIStructInfo)
     end
 end
 
-function extract_type(typeinfo::GITypeInfo,info::GIEnumGIOrFlags)
-    TypeDesc{GIEnumGIOrFlags}(info,:Any, :Int32, :EnumGI)
+function extract_type(typeinfo::GITypeInfo,basetype::Type{T}) where {T<:Enum}
+    bt=Base.Enums.basetype(T)
+    interf_info = get_interface(typeinfo)
+    name = get_name(interf_info)
+    TypeDesc{Type{Enum}}(Enum, :Any, name, Symbol(bt))
 end
 
-function convert_to_c(argname::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:GIEnumGIOrFlags}
+function convert_from_c(argname::Symbol, info::ArgInfo, ti::TypeDesc{T}) where {T<:Type{Enum}}
+    :( $(ti.jstype)($argname) )
+end
+
+function convert_to_c(argname::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:GIEnumOrFlags}
     :( enum_get($(enum_name(ti.gitype)),$argname) )
 end
 
@@ -511,25 +545,19 @@ typename(info::GIInterfaceInfo) = :GObject #FIXME
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GObject}
     interf_info = get_interface(typeinfo)
-    ns=get_namespace(interf_info)
-    prefix=get_c_prefix(ns)
-    name = Symbol(prefix,string(get_name(interf_info)))
+    name = get_full_name(interf_info)
     TypeDesc{Type{GObject}}(GObject, name, name, :(Ptr{GObject}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterface}
     interf_info = get_interface(typeinfo)
-    ns=get_namespace(interf_info)
-    prefix=get_c_prefix(ns)
-    name = Symbol(prefix,string(get_name(interf_info)))
+    name = get_full_name(interf_info)
     TypeDesc{Type{GInterface}}(GInterface, :Any, name, :(Ptr{GObject}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
     interf_info = get_interface(typeinfo)
-    ns=get_namespace(interf_info)
-    prefix=get_c_prefix(ns)
-    name = Symbol(prefix,string(get_name(interf_info)))
+    name = get_full_name(interf_info)
     TypeDesc{Type{GBoxed}}(GBoxed, name, name, :(Ptr{$name}))
 end
 
@@ -625,11 +653,11 @@ function symbol_from_lib(libname)
         return :libpango
     elseif occursin("libatk",libname)
         return :libatk
-    elseif occursin("libgdkpixbuf",libname)
+    elseif occursin("libgdk_pixbuf",libname)
         return :libgdkpixbuf
-    elseif occursin("libgdk3",libname)
+    elseif occursin("libgdk-3",libname)
         return :libgdk3
-    elseif occursin("libgtk3",libname)
+    elseif occursin("libgtk-3",libname)
         return :libgtk3
     end
     libname
@@ -649,7 +677,7 @@ end
 # with some partial-evaluation half-magic
 # (or maybe just jit-compile-time macros)
 # this could be simplified significantly
-function create_method(info::GIFunctionInfo,prefix)
+function create_method(info::GIFunctionInfo)
     name = get_name(info)
     flags = get_flags(info)
     args = get_args(info)
@@ -674,7 +702,7 @@ function create_method(info::GIFunctionInfo,prefix)
     end
     rettypeinfo=get_return_type(info)
     rettype = extract_type(rettypeinfo)
-    if rettype.ctype != :Nothing || skip_return(info)
+    if rettype.ctype != :Nothing && !skip_return(info)
         expr = convert_from_c(:ret,info,rettype)
         if expr != nothing
             push!(epilogue, :(ret2 = $expr))

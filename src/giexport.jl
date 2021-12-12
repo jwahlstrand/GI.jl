@@ -10,10 +10,10 @@ function all_const_exprs!(const_mod, const_exports, ns;print_summary=true)
         printstyled("Generated ",length(c)," constants\n";color=:green)
     end
 
-    es=get_all(ns,GIEnumGIInfo)
+    es=get_all(ns,GIEnumInfo)
     for e in es
         name = Symbol(get_name(e))
-        push!(const_mod.args, enum_decl(e))
+        push!(const_mod.args, enum_decl2(e))
         push!(const_exports.args, name)
     end
 
@@ -69,7 +69,7 @@ function struct_exprs!(exprs,exports,ns,structs;print_summary=true,excludelist=[
         end
         name = Symbol("$name")
         try
-            push!(exprs, struct_decl(ssi,get_c_prefix(ns);force_opaque=in(name,import_as_opaque)))
+            push!(exprs, struct_decl(ssi;force_opaque=in(name,import_as_opaque)))
         catch NotImplementedError
             if print_summary
                 printstyled(name," not implemented\n";color=:red)
@@ -78,7 +78,7 @@ function struct_exprs!(exprs,exports,ns,structs;print_summary=true,excludelist=[
             imported-=1
             continue
         end
-        push!(exports.args, full_name(ssi,get_c_prefix(ns)))
+        push!(exports.args, get_full_name(ssi))
     end
 
     if print_summary
@@ -110,8 +110,8 @@ function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],im
             continue
         end
         name = Symbol("$name")
-        push!(exprs, struct_decl(ssi,get_c_prefix(ns);force_opaque=in(name,import_as_opaque)))
-        push!(exports.args, full_name(ssi,get_c_prefix(ns)))
+        push!(exprs, struct_decl(ssi;force_opaque=in(name,import_as_opaque)))
+        push!(exports.args, get_full_name(ssi))
     end
 
     if output_cache_init
@@ -160,7 +160,7 @@ function all_struct_methods!(exprs,ns;print_summary=true,print_detailed=false,sk
             if print_detailed
                 println(get_name(m))
             end
-            fun=create_method(m,get_c_prefix(ns))
+            fun=create_method(m)
             push!(exprs, fun)
             push!(handled_symbols,get_symbol(m))
             created+=1
@@ -204,7 +204,7 @@ function all_objects!(exprs,exports,ns;print_summary=true,handled=[],skiplist=[]
             continue
         end
         obj_decl!(exprs,o,ns,handled)
-        push!(exports.args, full_name(o,get_c_prefix(ns)))
+        push!(exports.args, get_full_name(o))
     end
     if output_cache_init
         gtype_cache_init = quote
@@ -238,7 +238,7 @@ function all_object_methods!(exprs,ns;skiplist=[],object_skiplist=[])
                 continue
             end
             try
-                fun=create_method(m,get_c_prefix(ns))
+                fun=create_method(m)
                 push!(exprs, fun)
                 created+=1
             catch NotImplementedError
@@ -262,8 +262,8 @@ function all_interfaces!(exprs,exports,ns;print_summary=true,skiplist=[])
             imported-=1
             continue
         end
-        append!(exprs,ginterface_decl(i,get_c_prefix(ns)))
-        push!(exports.args, full_name(i,get_c_prefix(ns)))
+        append!(exprs,ginterface_decl(i))
+        push!(exports.args, get_full_name(i))
     end
 
     if print_summary && imported>0
@@ -293,7 +293,7 @@ function all_interface_methods!(exprs,ns;skiplist=[],interface_skiplist=[])
                 continue
             end
             try
-                fun=create_method(m,get_c_prefix(ns))
+                fun=create_method(m)
                 push!(exprs, fun)
                 created+=1
             catch NotImplementedError
@@ -345,7 +345,7 @@ function all_functions!(exprs,ns;print_summary=true,skiplist=[],symbol_skiplist=
         name = get_name(i)
         name = Symbol("$name")
         try
-            fun=create_method(i,get_c_prefix(ns))
+            fun=create_method(i)
             push!(exprs, fun)
             j+=1
         catch NotImplementedError
