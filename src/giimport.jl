@@ -125,6 +125,8 @@ function struct_decl(structinfo;force_opaque=false)
                 end
             end
         end
+        ustruc=unblock(ustruc)
+        fieldgetter=unblock(fieldgetter)
     end
     if isboxed
         struc=quote
@@ -503,7 +505,6 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{
 end
 
 function extract_type(typeinfo::GITypeInfo,basetype::Type{Function})
-    #throw(NotImplementedError)
     TypeDesc{Type{Function}}(Function,:Function, :Function, :(Ptr{Nothing}))
 end
 
@@ -526,6 +527,7 @@ function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:
     expr = quote
         @cfunction($special, $retctyp, $argctypes)
     end
+    MacroTools.striplines(expr)
 end
 
 const ObjectLike = Union{GIObjectInfo, GIInterfaceInfo}

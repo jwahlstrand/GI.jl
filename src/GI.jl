@@ -1,6 +1,7 @@
 module GI
     using Glib_jll
     using Pkg.Artifacts
+    using MacroTools
 
     include("GLib/GLib.jl")
     using .GLib
