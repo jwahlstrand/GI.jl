@@ -496,12 +496,15 @@ function extract_type(typeinfo::GITypeInfo,listtype::Type{T}) where {T<:GLib._LL
     elm = get_param_type(typeinfo,0)
     elmtype = extract_type(elm).ctype
     lt = listtype == GLib._GSList ? :(GLib._GSList) : :(GLib._GList)
-    #println("extract_type:",lt)
     TypeDesc{Type{GList}}(GList, :(GLib.LList{$lt{$elmtype}}),:(GLib.LList{$lt{$elmtype}}), :(Ptr{$lt{$elmtype}}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{GList}})
-    #owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
-    expr = :( GLib.GList($name) )
+    owns = (get_ownership_transfer(arginfo) == GITransfer.EVERYTHING)
+    if get_ownership_transfer(arginfo) == GITransfer.NOTHING
+          nothing  # just return the pointer
+    else
+        :( GLib.GList($name, $owns) )
+    end
 end
 
 function extract_type(typeinfo::GITypeInfo,basetype::Type{Function})
