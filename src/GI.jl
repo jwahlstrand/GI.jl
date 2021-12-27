@@ -3,10 +3,9 @@ module GI
     using Pkg.Artifacts
     using MacroTools
 
-    include("GLib/GLib.jl")
-    using .GLib
-    import .GLib: libgobject, libglib, bytestring
-    import .GLib:
+    using Gtk.GLib
+    import Glib_jll: libgobject, libglib
+    import Gtk.GLib:
       unsafe_convert,
       AbstractStringLike, bytestring
 
