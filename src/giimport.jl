@@ -363,8 +363,16 @@ function extract_type(info::GITypeInfo, basetype)
         styp = typ
     elseif typ===:Bool
         ptyp = :Cint
-        typ = :Any
+        typ = :Bool
         styp = :Bool
+    elseif isa(basetype,Type) && basetype <: Integer
+        ptyp = typ
+        styp = typ
+        typ = :Integer
+    elseif isa(basetype,Type) && basetype <: Real  # Float64 and Float32
+        ptyp = typ
+        styp = typ
+        typ = :Real
     else
         ptyp = typ
         styp = typ
@@ -380,7 +388,7 @@ end
 
 function extract_type(info::GITypeInfo, basetype::Type{String})
     @assert is_pointer(info)
-    TypeDesc{Type{String}}(String,:Any,:String,:(Ptr{UInt8}))
+    TypeDesc{Type{String}}(String,:(Union{AbstractString,Symbol}),:String,:(Ptr{UInt8}))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}})
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
@@ -631,7 +639,7 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, ti::TypeDesc{T}) where {
     # check transfer
     typ=get_type(arginfo)
 
-    if ti.jtype != :Any
+    if ti.jtype !== :Any && ti.jtype !== :Real && ti.jtype !== :Integer
         :(convert($(ti.jtype), $name))
     elseif ti.gitype === Bool
         :(convert(Bool, $name))
