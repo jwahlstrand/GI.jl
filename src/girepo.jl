@@ -1,3 +1,5 @@
+# Julia wrapper for libgirepository
+
 abstract type GIRepository end
 
 abstract type GITypelib end

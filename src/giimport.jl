@@ -1,3 +1,5 @@
+# use libgirepository to produce Julia declarations and methods
+
 const_decls(ns) = const_decls(ns,x->x)
 function const_decls(ns,fmt)
     consts = get_consts(ns)
@@ -12,6 +14,7 @@ function const_decls(ns,fmt)
 end
 const_expr(name,val) =  :($(Symbol(name)) = $(val))
 
+# export enum using a baremodule, as is done in Gtk.jl
 function enum_decl(enum)
     enumname=get_name(enum)
     vals = get_enum_values(enum)
@@ -27,6 +30,7 @@ end
 
 enum_fullname(enumname,name) = Symbol(enumname,"_",uppercase(name))
 
+# export as a Julia enum type
 function enum_decl2(enum)
     enumname=get_name(enum)
     vals = get_enum_values(enum)
@@ -71,6 +75,13 @@ function enum_decls(ns)
     (typedefs,aliases)
 end
 enum_name(enum) = Symbol(string(get_namespace(enum),get_name(enum)))
+
+## Struct output
+
+# Opaque structs (where the contents are not part of the public API) are
+# exported with a "handle" field.
+
+# Non-opaque structs can be outputted too but details are still being worked out
 
 function struct_decl(structinfo;force_opaque=false)
     fields=get_fields(structinfo)
@@ -149,7 +160,9 @@ function struct_decl(structinfo;force_opaque=false)
     struc
 end
 
-## GObject output
+## GObject output (simpler in some ways than type declaration macros in Gtk.GLib)
+# NOTE: These are not currently used (see below for code that uses the Gtk.jl macros)
+# Leaving these here for possible future use
 
 # extract properties for a particular GObject type
 function prop_dict(info)
@@ -301,6 +314,8 @@ function ginterface_decl(interfaceinfo)
     exprs
 end
 
+## Output GObject and GInterface declarations using macros in Gtk.GLib
+
 function gen_macro(info, m)
     body = Expr(:macrocall)
     push!(body.args, Symbol(m))
@@ -317,6 +332,8 @@ end
 # For an ObjectInfo, output a macro declaration
 obj_macro(o) = gen_macro(o,"@Gtype")
 interface_macro(i) = gen_macro(i,"@Giface")
+
+## Handling argument types, creating methods
 
 mutable struct NotImplementedError <: Exception
 end
