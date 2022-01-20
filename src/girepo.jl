@@ -321,6 +321,18 @@ function is_gobject(info::GIObjectInfo)
     end
 end
 
+# Look through the prerequisites for an interface and return the one that is a
+# subclass of GObject. If there are none, return GObject.
+function get_gobj_prerequisite(info::GIInterfaceInfo)
+    prereqs = get_prerequisites(info)
+    length(prereqs) == 0 && return :GObject
+    for p in prereqs
+        if GIInfoTypeNames[get_type(p)+1] === :GIObjectInfo
+            return get_full_name(p)
+        end
+    end
+    return :GObject
+end
 
 const typetag_primitive = [
     Nothing,Bool,Int8,UInt8,

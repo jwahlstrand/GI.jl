@@ -583,7 +583,7 @@ function typename(info::GIObjectInfo)
 end
 
 # not sure the best way to implement this given no multiple inheritance
-typename(info::GIInterfaceInfo) = :GObject #FIXME
+typename(info::GIInterfaceInfo) = get_gobj_prerequisite(info)
 
 #function typename(info::GIInterfaceInfo)
 #    g_type = get_g_type(info)
@@ -598,8 +598,10 @@ end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterface}
     interf_info = get_interface(typeinfo)
+    obj = get_gobj_prerequisite(interf_info)
+    #println(get_name(interf_info)," ",obj)
     name = get_full_name(interf_info)
-    TypeDesc{Type{GInterface}}(GInterface, :Any, name, :(Ptr{GObject}))
+    TypeDesc{Type{GInterface}}(GInterface, :Any, name, :(Ptr{obj}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
