@@ -599,9 +599,8 @@ end
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterface}
     interf_info = get_interface(typeinfo)
     obj = get_gobj_prerequisite(interf_info)
-    #println(get_name(interf_info)," ",obj)
     name = get_full_name(interf_info)
-    TypeDesc{Type{GInterface}}(GInterface, :Any, name, :(Ptr{obj}))
+    TypeDesc{Type{GInterface}}(GInterface, obj, name, :(Ptr{$obj}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
@@ -624,7 +623,7 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
     if may_be_null(arginfo)
         :(($name == C_NULL ? nothing : convert(GObject, $name, $owns)))
     else
-        :(convert(GObject, $name, $owns))
+        :(convert($(typeinfo.jtype), $name, $owns))
     end
 end
 
