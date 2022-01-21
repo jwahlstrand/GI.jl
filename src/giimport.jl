@@ -36,29 +36,16 @@ function enum_decl2(enum)
     vals = get_enum_values(enum)
     typ = typetag_primitive[get_storage_type(enum)]
     body = Expr(:macrocall)
-    push!(body.args, Symbol("@enum"))
+    push!(body.args, Symbol("@cenum"))
     push!(body.args, Symbol("nothing"))
     push!(body.args, :($enumname::$typ))
-    occurred=[]
-    dups=[]
     for (name,val) in vals
-        if val in occurred
-            push!(dups,name)
-            continue
-        end
-        push!(occurred,val)
         val=unsafe_trunc(typ,val)  # sometimes the value returned by GI is outside the range of the enum's type
         fullname=enum_fullname(enumname,name)
         push!(body.args, :($fullname = $val) )
     end
     bloc = Expr(:block)
     push!(bloc.args,body)
-    for (name,val) in vals
-        if name in dups
-            fullname=enum_fullname(enumname,name)
-            push!(bloc.args,:(const $fullname = $enumname($val)))
-        end
-    end
     bloc
 end
 
