@@ -405,7 +405,7 @@ end
 
 function extract_type(info::GITypeInfo, basetype::Type{String})
     @assert is_pointer(info)
-    TypeDesc{Type{String}}(String,:(Union{AbstractString,Symbol}),:String,:(Ptr{UInt8}))
+    TypeDesc{Type{String}}(String,:(Union{AbstractString,Symbol}),:String,:(Cstring))
 end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{Type{String}})
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
@@ -621,9 +621,16 @@ end
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GInterface}}
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
     if may_be_null(arginfo)
-        :(($name == C_NULL ? nothing : convert(GObject, $name, $owns)))
+        quote
+            if $name == C_NULL
+                nothing
+            else
+                leaftype = GLib.find_leaf_type($name)
+                convert(leaftype, $name, $owns)
+            end
+        end
     else
-        :(convert($(typeinfo.jtype), $name, $owns))
+        :(leaftype = GLib.find_leaf_type($name.handle);convert(leaftype, $name, $owns))
     end
 end
 
