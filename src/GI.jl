@@ -1,6 +1,5 @@
 module GI
     using Glib_jll
-    using Pkg.Artifacts
     using MacroTools
 
     include("GLib/GLib.jl")
@@ -19,7 +18,8 @@ module GI
     export const_expr
     export extract_type
 
-    include(joinpath("..","deps","ext.jl"))
+    libgi = "libgirepository-1.0"
+
     include("girepo.jl")
     include("giimport.jl")
     include("giexport.jl")
