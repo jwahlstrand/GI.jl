@@ -13,7 +13,7 @@ function all_const_exprs!(const_mod, const_exports, ns;print_summary=true)
     es=get_all(ns,GIEnumInfo)
     for e in es
         name = Symbol(get_name(e))
-        push!(const_mod.args, enum_decl2(e))
+        push!(const_mod.args, enum_decl(e))
         push!(const_exports.args, name)
     end
 
@@ -88,7 +88,7 @@ function struct_exprs!(exprs,exports,ns,structs;print_summary=true,excludelist=[
     struct_skiplist
 end
 
-function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],import_as_opaque=[],output_cache_init=true)
+function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],import_as_opaque=[],output_cache_init=true,only_opaque=false)
     struct_skiplist=excludelist
 
     s=get_all(ns,GIStructInfo)
@@ -96,20 +96,21 @@ function all_struct_exprs!(exprs,exports,ns;print_summary=true,excludelist=[],im
     imported=length(ss)
     for ssi in ss
         name=get_name(ssi)
+        name = Symbol("$name")
         fields=get_fields(ssi)
+        if only_opaque && length(fields)>0 && !in(name,import_as_opaque)
+            imported-=1
+            continue
+        end
         if occursin("Private",String(name))
             imported-=1
             continue
         end
         if is_gtype_struct(ssi) # these are "class structures" and according to the documentation we probably don't need them in bindings
             push!(struct_skiplist,name)
-            #if print_summary
-            #    printstyled(name," is a gtype struct, skipping\n";color=:yellow)
-            #end
             imported-=1
             continue
         end
-        name = Symbol("$name")
         push!(exprs, struct_decl(ssi;force_opaque=in(name,import_as_opaque)))
         push!(exports.args, get_full_name(ssi))
     end

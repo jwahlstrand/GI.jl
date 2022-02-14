@@ -70,12 +70,22 @@ enum_name(enum) = Symbol(string(get_namespace(enum),get_name(enum)))
 
 # Non-opaque structs can be outputted too but details are still being worked out
 
+# get the thing that should go inside the curly brackets in Ptr{}
+function get_struct_name(structinfo,force_opaque=false)
+    fields=get_fields(structinfo)
+    gstructname = get_full_name(structinfo)
+    (length(fields)>0 && !force_opaque) ? Symbol("_",gstructname) : gstructname
+end
+
 function struct_decl(structinfo;force_opaque=false)
     fields=get_fields(structinfo)
     gstructname = get_full_name(structinfo)
+    ustructname=get_struct_name(structinfo,force_opaque)
     gtype=get_g_type(structinfo)
     isboxed = GLib.g_isa(gtype,GLib.g_type_from_name(:GBoxed))
+    isopaque = length(fields)==0 || force_opaque
     decl = isboxed ? :($gstructname <: GBoxed) : gstructname
+    exprs=Expr[]
     if isboxed
         type_init = String(get_type_init(structinfo))
         libs=get_shlibs(GINamespace(get_namespace(structinfo)))
@@ -84,7 +94,7 @@ function struct_decl(structinfo;force_opaque=false)
         fin = quote
             GLib.g_type(::Type{T}) where {T <: $gstructname} =
                       ccall(($type_init, $slib), GType, ())
-            function $gstructname(ref::Ptr{T}, own::Bool = false) where T<:GBoxed
+            function $gstructname(ref::Ptr{$ustructname}, own::Bool = false)
                 #println("constructing ",$(QuoteNode(gstructname)), " ",own)
                 x = new(ref)
                 if own
@@ -98,9 +108,8 @@ function struct_decl(structinfo;force_opaque=false)
             push!(gboxed_types,$gstructname)
         end
     end
-    ustruc=nothing
     fieldgetter=nothing
-    if length(fields)>0 && !force_opaque
+    if !isopaque
         fieldsexpr=Expr[]
         for field in fields
             field1=get_name(field)
@@ -113,38 +122,42 @@ function struct_decl(structinfo;force_opaque=false)
                 $(fieldsexpr...)
             end
         end
-        fieldgetter=quote
-            function Base.getproperty(s::$gstructname,sym::Symbol)
-                if sym===:handle
-                    return getfield(s,:handle)
-                elseif in(sym,fieldnames($ustructname))
-                    u=unsafe_load(Ptr{$ustructname}(s.handle))
-                    return getfield(u,sym)
-                end
-            end
-        end
+        # fieldgetter=quote
+        #     unsafe_convert(::Type{Ptr{$ustructname}}, box::$gstructname) = convert(Ptr{$ustructname}, box.handle)
+        #     function Base.getproperty(s::$gstructname,sym::Symbol)
+        #         if sym===:handle
+        #             return getfield(s,:handle)
+        #         elseif in(sym,fieldnames($ustructname))
+        #             u=unsafe_load(Ptr{$ustructname}(s.handle))
+        #             return getfield(u,sym)
+        #         end
+        #     end
+        # end
         ustruc=unblock(ustruc)
         fieldgetter=unblock(fieldgetter)
+        push!(exprs,ustruc)
     end
     if isboxed
         struc=quote
-            $ustruc
             mutable struct $decl
-                handle::Ptr{$gstructname}
+                handle::Ptr{$ustructname}
                 $fin
             end
-            $fieldgetter
+            #$fieldgetter
         end
     else
         struc=quote
-            $ustruc
             mutable struct $decl
-                handle::Ptr{$gstructname}
+                handle::Ptr{$ustructname}
             end
-            $fieldgetter
+            #$fieldgetter
         end
     end
-    struc
+    push!(exprs,struc)
+    e = quote
+        $(exprs...)
+    end
+    unblock(e)
 end
 
 ## GObject output (simpler in some ways than type declaration macros in Gtk.GLib)
@@ -333,12 +346,13 @@ struct TypeDesc{T}
     gitype::T
     jtype::Union{Expr,Symbol}    # used in Julia for arguments
     jstype::Union{Expr,Symbol}   # most specific relevant Julia type (for properties)
-    ctype::Union{Expr,Symbol}    # used in ccall's
+    ctype::Union{Expr,Symbol}    # used in ccall returns and structs
+    #catype::Union{Expr,Symbol}   # used in ccall arguments
 end
 
 # extract_type creates a TypeDesc corresponding to an argument or field
 # for constructing functions and structs
-# FIXME: currently sort of a mess
+# FIXME: in dire need of cleaning up
 
 # convert_from_c(name,arginfo,typeinfo) produces an expression that sets the symbol "name" from GIArgInfo
 # used for certain types to convert returned values from ccall's to Julia types
@@ -409,9 +423,10 @@ function typename(info::GIStructInfo)
 end
 function extract_type(typeinfo::TypeInfo, info::GIStructInfo)
     name = typename(info)
+    sname = get_struct_name(info)
     if is_pointer(typeinfo)
         #TypeDesc(info,:(Ptr{$name}),:(Ptr{$name})) # use this for plain old structs?
-        TypeDesc(info,typename(info),typename(info),:(Ptr{$name}))
+        TypeDesc(info,typename(info),typename(info),:(Ptr{$sname}))
         #TypeDesc(info,:Any,:(Ptr{Nothing}))
     else
         TypeDesc(info,name,name,name)
@@ -541,6 +556,7 @@ function extract_type(typeinfo::GITypeInfo,basetype::Type{Function})
 end
 
 function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:Type{Function}}
+    throw(NotImplementedError)
     typeinfo=get_type(info)
     callbackinfo=get_interface(typeinfo)
     #println(get_name(callbackinfo))
@@ -564,18 +580,10 @@ end
 
 const ObjectLike = Union{GIObjectInfo, GIInterfaceInfo}
 
-function typename(info::GIObjectInfo)
+function typename(info::ObjectLike)
     g_type = get_g_type(info)
     Symbol(GLib.g_type_name(g_type))
 end
-
-# not sure the best way to implement this given no multiple inheritance
-typename(info::GIInterfaceInfo) = get_gobj_prerequisite(info)
-
-#function typename(info::GIInterfaceInfo)
-#    g_type = get_g_type(info)
-#    Symbol(GLib.g_type_name(g_type))
-#end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GObject}
     interf_info = get_interface(typeinfo)
@@ -587,13 +595,16 @@ function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GInterf
     interf_info = get_interface(typeinfo)
     obj = get_gobj_prerequisite(interf_info)
     name = get_full_name(interf_info)
-    TypeDesc{Type{GInterface}}(GInterface, obj, name, :(Ptr{$obj}))
+    TypeDesc{Type{GInterface}}(GInterface, name, name, :(Ptr{$obj}))
 end
 
 function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
     interf_info = get_interface(typeinfo)
     name = get_full_name(interf_info)
-    TypeDesc{Type{GBoxed}}(GBoxed, name, name, :(Ptr{$name}))
+    sname = get_struct_name(interf_info)
+    p = is_pointer(typeinfo)
+    ctype = is_pointer(typeinfo) ? :(Ref{$sname}) : sname
+    TypeDesc{Type{GBoxed}}(GBoxed, :Any, name, ctype)
 end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GObject}}
@@ -617,7 +628,7 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
             end
         end
     else
-        :(leaftype = GLib.find_leaf_type($name.handle);convert(leaftype, $name, $owns))
+        :(leaftype = GLib.find_leaf_type($name);convert(leaftype, $name, $owns))
     end
 end
 
@@ -625,8 +636,10 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
     if may_be_null(arginfo)
         :(($name == C_NULL ? nothing : convert($(typeinfo.jtype), $name, $owns)))
-    else
+    elseif is_pointer(get_type(arginfo))
         :(convert($(typeinfo.jtype), $name, $owns))
+    else
+        nothing
     end
 end
 
@@ -776,19 +789,6 @@ function create_method(info::GIFunctionInfo)
             ctype = typ.ctype
             wname = Symbol("m_$(get_name(arg))")
             atyp = get_type(arg)
-            # If this is a struct, we need use the underscored version, which
-            # has the fields. FIXME: this is a problem for structs using "force opaque"
-            if TAG_INTERFACE == get_tag(atyp)
-                structinfo = get_interface(atyp)
-                if isa(structinfo,GIStructInfo)
-                    if isa(ctype,Symbol) || (isa(ctype,Expr) && ctype.args[1] !== :Ptr)
-                        fields=get_fields(structinfo)
-                        if length(fields)>0
-                            ctype = Symbol("_",ctype)
-                        end
-                    end
-                end
-            end
             push!(prologue, :( $wname = Ref{$ctype}() ))
             if dir == GIDirection.INOUT
                 push!(prologue, :( $wname[] = Base.cconvert($ctype,$aname) ))
