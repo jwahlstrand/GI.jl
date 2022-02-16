@@ -13,7 +13,7 @@ function all_const_exprs!(const_mod, const_exports, ns;print_summary=true)
     es=get_all(ns,GIEnumInfo)
     for e in es
         name = Symbol(get_name(e))
-        push!(const_mod.args, enum_decl(e))
+        push!(const_mod.args, enum_decl2(e))
         push!(const_exports.args, name)
     end
 

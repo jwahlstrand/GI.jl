@@ -83,7 +83,7 @@ function struct_decl(structinfo;force_opaque=false)
     ustructname=get_struct_name(structinfo,force_opaque)
     gtype=get_g_type(structinfo)
     isboxed = GLib.g_isa(gtype,GLib.g_type_from_name(:GBoxed))
-    isopaque = length(fields)==0 || force_opaque
+    opaque = length(fields)==0 || force_opaque
     decl = isboxed ? :($gstructname <: GBoxed) : gstructname
     exprs=Expr[]
     if isboxed
@@ -94,7 +94,7 @@ function struct_decl(structinfo;force_opaque=false)
         fin = quote
             GLib.g_type(::Type{T}) where {T <: $gstructname} =
                       ccall(($type_init, $slib), GType, ())
-            function $gstructname(ref::Ptr{$ustructname}, own::Bool = false)
+            function $gstructname(ref::Ptr{T}, own::Bool = false) where {T <: GBoxed}
                 #println("constructing ",$(QuoteNode(gstructname)), " ",own)
                 x = new(ref)
                 if own
@@ -109,7 +109,7 @@ function struct_decl(structinfo;force_opaque=false)
         end
     end
     fieldgetter=nothing
-    if !isopaque
+    if !opaque
         fieldsexpr=Expr[]
         for field in fields
             field1=get_name(field)
@@ -154,6 +154,10 @@ function struct_decl(structinfo;force_opaque=false)
         end
     end
     push!(exprs,struc)
+    if force_opaque
+        ustructname = get_struct_name(structinfo)
+        push!(exprs,:(const $ustructname = $gstructname))
+    end
     e = quote
         $(exprs...)
     end
@@ -258,9 +262,13 @@ function gobject_decl(objectinfo)
     decl=quote
         mutable struct $leafname <: $oname
             handle::Ptr{GObject}
-            function $leafname(handle::Ptr{GObject})
+            function $leafname(handle::Ptr{GObject}, owns=false)
                 if handle == C_NULL
                     error($("Cannot construct $leafname with a NULL pointer"))
+                end
+                is_floating = (ccall(("g_object_is_floating", libgobject), Cint, (Ptr{GObject},), handle)!=0)
+                if !owns || is_floating # if owns is true then we already have a reference, but if it's floating we should sink it
+                    gc_ref_sink(handle)
                 end
                 return gobject_ref(new(handle))
             end
@@ -482,7 +490,7 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
 
     owns = typeof(arginfo)==GIFunctionInfo ? get_caller_owns(arginfo) : get_ownership_transfer(arginfo)
     if is_zero_terminated(argtypeinfo) && owns==GITransfer.EVERYTHING
-        if elmctype == :(Ptr{UInt8})
+        if elmctype == :(Ptr{UInt8}) || elmctype == :(Cstring)
             :(_len=length_zt($name);ret2=bytestring.(unsafe_wrap(Vector{$elmctype}, $name,_len));GLib.g_strfreev($name);ret2)
         else
             return nothing
@@ -508,7 +516,7 @@ function convert_to_c(name::Symbol, info::GIArgInfo, ti::TypeDesc{T}) where {T<:
     elm = get_param_type(typeinfo,0)
     elmtype = extract_type(elm)
     elmctype=elmtype.ctype
-    if elmctype == :(Ptr{UInt8})
+    if elmctype == :(Ptr{UInt8}) || elmctype == :(Cstring)
         return nothing
     end
     :(convert(Vector{$elmctype},$name))
@@ -603,8 +611,8 @@ function extract_type(typeinfo::GITypeInfo, basetype::Type{T}) where {T<:GBoxed}
     name = get_full_name(interf_info)
     sname = get_struct_name(interf_info)
     p = is_pointer(typeinfo)
-    ctype = is_pointer(typeinfo) ? :(Ref{$sname}) : sname
-    TypeDesc{Type{GBoxed}}(GBoxed, :Any, name, ctype)
+    ctype = is_pointer(typeinfo) ? :(Ptr{$sname}) : sname
+    TypeDesc{Type{GBoxed}}(GBoxed, name, name, ctype)
 end
 
 function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) where {T <: Type{GObject}}
@@ -636,10 +644,10 @@ function convert_from_c(name::Symbol, arginfo::ArgInfo, typeinfo::TypeDesc{T}) w
     owns = get_ownership_transfer(arginfo) != GITransfer.NOTHING
     if may_be_null(arginfo)
         :(($name == C_NULL ? nothing : convert($(typeinfo.jtype), $name, $owns)))
-    elseif is_pointer(get_type(arginfo))
-        :(convert($(typeinfo.jtype), $name, $owns))
+    #elseif is_pointer(invoke(get_type, Tuple{ArgInfo}, arginfo))
+    #    :(convert($(typeinfo.jtype), $name, $owns))
     else
-        nothing
+        :(convert($(typeinfo.jtype), $name, $owns))
     end
 end
 

@@ -427,6 +427,11 @@ function get_base_type(info::GITypeInfo)
     end
 end
 
+function isopaque(info::GIStructInfo)
+    fields=get_fields(info)
+    return length(fields)==0
+end
+
 get_call(info::GITypeInfo) = get_call(get_container(info))
 get_call(info::GIArgInfo) = get_container(info)
 get_call(info::GICallableInfo) = info
